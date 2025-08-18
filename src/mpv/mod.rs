@@ -161,7 +161,11 @@ impl Mpv {
 
     pub fn set_property(&mut self, name: &str, value: impl Into<Value>) -> io::Result<()> {
         self.command::<()>(Command::set_property(name, value))?;
+        Ok(())
+    }
 
+    pub fn cycle_property(&mut self, name: &str) -> io::Result<()> {
+        self.command::<()>(Command::cycle_property(name))?;
         Ok(())
     }
 }

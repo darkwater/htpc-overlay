@@ -1,9 +1,14 @@
 use std::time::{Duration, Instant};
 
-use egui::{Align, FontSelection, RichText, Style, TextFormat, Widget, text::LayoutJob};
+use egui::{Align, FontSelection, RichText, Style, Widget, text::LayoutJob};
 use gilrs::{Axis, Button, EventType, Gilrs};
 
 use crate::{Command, toast::Toast};
+
+pub const BUTTON_A: Button = Button::East;
+pub const BUTTON_B: Button = Button::South;
+pub const BUTTON_X: Button = Button::North;
+pub const BUTTON_Y: Button = Button::West;
 
 pub struct Gamepad {
     gilrs: Gilrs,
@@ -57,6 +62,10 @@ impl Gamepad {
         Command::None
     }
 
+    pub fn get_just_pressed(&self) -> Vec<Button> {
+        self.just_pressed.clone()
+    }
+
     pub fn just_pressed(&self, button: Button) -> bool {
         self.just_pressed.contains(&button)
     }
@@ -78,10 +87,10 @@ impl Default for Gamepad {
 
 pub fn button_label(button: Button) -> &'static str {
     match button {
-        Button::East => "\u{e02a}",
-        Button::South => "\u{e023}",
-        Button::North => "\u{e02c}",
-        Button::West => "\u{e027}",
+        Button::East => "\u{e005}",
+        Button::South => "\u{e007}",
+        Button::North => "\u{e019}",
+        Button::West => "\u{e01b}",
         Button::C => "🇨",
         Button::Z => "🇿",
 
@@ -90,8 +99,8 @@ pub fn button_label(button: Button) -> &'static str {
         Button::RightTrigger => "R1",
         Button::RightTrigger2 => "R2",
 
-        Button::Select => "-",
-        Button::Start => "+",
+        Button::Select => "\u{e00d}",
+        Button::Start => "\u{e00f}",
         Button::Mode => "⭐",
 
         Button::LeftThumb => "L3",

@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
-use egui::{Align, Align2, Area, Color32, Frame, Id, Layout, Rect, RichText, UiBuilder, vec2};
+use egui::{Align, Align2, Area, Color32, Frame, Id, Layout, RichText, vec2};
 
 #[derive(Debug)]
 pub struct SpawnedToast {
@@ -43,6 +43,7 @@ pub fn draw(toasts: &mut Vec<SpawnedToast>, ctx: &egui::Context) {
                 ui.with_layout(Layout::top_down(Align::Max), |ui| {
                     Frame::new()
                         .fill(Color32::from_black_alpha(192))
+                        .corner_radius(8.)
                         .inner_margin(6.)
                         .show(ui, |ui| {
                             toast.toast.ui(ui);

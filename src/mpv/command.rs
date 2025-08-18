@@ -21,6 +21,12 @@ impl Command {
         }
     }
 
+    pub fn cycle_property(name: &str) -> Self {
+        Command {
+            command: serde_json::json!(["cycle", name]),
+        }
+    }
+
     pub fn write_to(self, stream: &mut impl io::Write) -> io::Result<()> {
         let cmd_str = serde_json::to_string(&self.command)?;
         stream.write_all(cmd_str.as_bytes())
