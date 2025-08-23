@@ -43,8 +43,12 @@ pub struct Response<T> {
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "event")]
 pub enum Event {
-    PropertyChange { data: Value, name: String },
-    SomethingElse, // just so there's more than one
+    PropertyChange {
+        data: Value,
+        name: String,
+    },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Deserialize)]

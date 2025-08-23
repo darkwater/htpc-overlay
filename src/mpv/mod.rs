@@ -120,7 +120,9 @@ impl Mpv {
                 }
                 self.observed_properties.insert(name, data);
             }
-            Event::SomethingElse => unreachable!(),
+            Event::Unknown => {
+                eprintln!("Unknown event received");
+            }
         }
     }
 

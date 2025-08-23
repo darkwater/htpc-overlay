@@ -7,7 +7,7 @@ use egui::{
     Align, Color32, Direction, FontData, FontFamily, Layout, ProgressBar, RichText, Stroke,
     UiBuilder, Widget as _,
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
-    style::{Selection, Widgets},
+    style::Selection,
 };
 use egui_wlr_layer::{
     Anchor, InputRegions, KeyboardInteractivity, Layer, LayerAppOpts, LayerSurface,
@@ -15,7 +15,7 @@ use egui_wlr_layer::{
 use gilrs::Button;
 
 use self::{
-    gamepad::{BUTTON_B, BUTTON_X, Gamepad, button_prompt},
+    gamepad::{BUTTON_A, BUTTON_B, BUTTON_X, Gamepad, button_prompt},
     mpv::Mpv,
     toast::{SpawnedToast, Toast},
 };
@@ -109,8 +109,6 @@ impl egui_wlr_layer::App for App {
         for button in just_pressed {
             if let Some(action) = actions.iter().find(|a| a.button == button) {
                 self.handle_command((action.command)());
-            } else if matches!(view, View::Hidden) && self.gamepad.just_pressed_any() {
-                self.handle_command(Command::ChangeView(View::SeekBar));
             }
         }
 
@@ -122,7 +120,8 @@ impl egui_wlr_layer::App for App {
                 .show_separator_line(false)
                 .show(ctx, |ui| {
                     ui.scope(|ui| {
-                        ui.visuals_mut().override_text_color = Some(Color32::from_white_alpha(64));
+                        ui.visuals_mut().override_text_color =
+                            Some(Color32::from_rgb(137, 220, 235));
 
                         let (left, right) = actions
                             .into_iter()
@@ -205,6 +204,28 @@ impl App {
             Command::MpvCommand(MpvCommand::TogglePause) => {
                 self.mpv.cycle_property("pause").unwrap();
             }
+            Command::DoneSeeking => {}   // TODO
+            Command::CancelSeeking => {} // TODO
+            Command::SeekFaster => {
+                if let View::SeekBar {
+                    seek_speed: Some(seek_speed),
+                } = &mut self.view
+                {
+                    if let Some(new_speed) = seek_speed.longer() {
+                        *seek_speed = new_speed;
+                    }
+                }
+            }
+            Command::SeekSlower => {
+                if let View::SeekBar {
+                    seek_speed: Some(seek_speed),
+                } = &mut self.view
+                {
+                    if let Some(new_speed) = seek_speed.shorter() {
+                        *seek_speed = new_speed;
+                    }
+                }
+            }
             Command::Quit => {
                 EXIT.store(true, Ordering::Relaxed);
             }
@@ -216,8 +237,62 @@ impl App {
 enum View {
     #[default]
     Hidden,
-    SeekBar,
+    SeekBar {
+        seek_speed: Option<SeekSpeed>,
+    },
     Characters,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum SeekSpeed {
+    Second,
+    #[default]
+    Keyframe,
+    TenSeconds,
+    Minute,
+    TenMinutes,
+}
+
+impl SeekSpeed {
+    fn duration(self) -> Option<Duration> {
+        match self {
+            SeekSpeed::Second => Some(Duration::from_secs(1)),
+            SeekSpeed::Keyframe => None,
+            SeekSpeed::TenSeconds => Some(Duration::from_secs(10)),
+            SeekSpeed::Minute => Some(Duration::from_secs(60)),
+            SeekSpeed::TenMinutes => Some(Duration::from_secs(600)),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            SeekSpeed::Second => "1s",
+            SeekSpeed::Keyframe => "Kf",
+            SeekSpeed::TenSeconds => "10s",
+            SeekSpeed::Minute => "1m",
+            SeekSpeed::TenMinutes => "10m",
+        }
+    }
+
+    fn longer(self) -> Option<Self> {
+        match self {
+            SeekSpeed::Second => Some(SeekSpeed::Keyframe),
+            SeekSpeed::Keyframe => Some(SeekSpeed::TenSeconds),
+            SeekSpeed::TenSeconds => Some(SeekSpeed::Minute),
+            SeekSpeed::Minute => Some(SeekSpeed::TenMinutes),
+            SeekSpeed::TenMinutes => None,
+        }
+    }
+
+    fn shorter(self) -> Option<Self> {
+        match self {
+            SeekSpeed::Second => None,
+            SeekSpeed::Keyframe => Some(SeekSpeed::Second),
+            SeekSpeed::TenSeconds => Some(SeekSpeed::Keyframe),
+            SeekSpeed::Minute => Some(SeekSpeed::TenSeconds),
+            SeekSpeed::TenMinutes => Some(SeekSpeed::Minute),
+        }
+    }
 }
 
 impl View {
@@ -236,7 +311,7 @@ impl View {
 
         match self {
             View::Hidden => Command::None,
-            View::SeekBar => {
+            View::SeekBar { seek_speed } => {
                 egui::TopBottomPanel::bottom("seek ui")
                     .show_separator_line(false)
                     .show(ctx, |ui| {
@@ -308,56 +383,169 @@ impl View {
         // }
     }
 
-    fn button_actions(&self) -> Vec<ButtonAction> {
+    fn button_actions(&self) -> Actions {
         match self {
-            View::Hidden => vec![
-                ButtonAction {
-                    button: BUTTON_X,
+            View::Hidden => Actions {
+                a: Some(ButtonAction {
+                    label: "Show UI".to_string(),
+                    position: PromptPosition::None,
+                    command: || Command::ChangeView(View::SeekBar { seek_speed: None }),
+                }),
+                b: Some(ButtonAction {
+                    label: "Show UI".to_string(),
+                    position: PromptPosition::None,
+                    command: || Command::ChangeView(View::SeekBar { seek_speed: None }),
+                }),
+                x: Some(ButtonAction {
                     label: "Pause".to_string(),
                     position: PromptPosition::None,
                     command: || Command::MpvCommand(MpvCommand::TogglePause),
-                },
-                ButtonAction {
-                    button: Button::LeftTrigger2,
+                }),
+                l2: Some(ButtonAction {
                     label: "Characters".to_string(),
                     position: PromptPosition::None,
                     command: || Command::ChangeView(View::Characters),
-                },
-            ],
-            View::SeekBar => vec![
-                // (BUTTON_B, "Hide".to_string()),
-                // (BUTTON_X, "Pause".to_string()),
-                ButtonAction {
-                    button: BUTTON_B,
+                }),
+                ..Default::default()
+            },
+            View::SeekBar {
+                seek_speed: Some(_),
+            } => Actions {
+                a: Some(ButtonAction {
+                    label: "Done".to_string(),
+                    position: PromptPosition::Right,
+                    command: || Command::DoneSeeking,
+                }),
+                b: Some(ButtonAction {
+                    label: "Return".to_string(),
+                    position: PromptPosition::Right,
+                    command: || Command::CancelSeeking,
+                }),
+                up: Some(ButtonAction {
+                    label: "Faster".to_string(),
+                    position: PromptPosition::Right,
+                    command: || Command::SeekFaster,
+                }),
+                down: Some(ButtonAction {
+                    label: "Slower".to_string(),
+                    position: PromptPosition::Right,
+                    command: || Command::SeekSlower,
+                }),
+                ..Default::default()
+            },
+            View::SeekBar { seek_speed: None } => Actions {
+                b: Some(ButtonAction {
                     label: "Hide".to_string(),
                     position: PromptPosition::Right,
                     command: || Command::ChangeView(View::Hidden),
-                },
-                ButtonAction {
-                    button: BUTTON_X,
+                }),
+                x: Some(ButtonAction {
                     label: "Pause".to_string(),
                     position: PromptPosition::Right,
                     command: || Command::MpvCommand(MpvCommand::TogglePause),
-                },
-                ButtonAction {
-                    button: Button::Start,
+                }),
+                start: Some(ButtonAction {
                     label: "Quit".to_string(),
                     position: PromptPosition::Left,
                     command: || Command::Quit,
-                },
-            ],
-            View::Characters => vec![ButtonAction {
-                button: BUTTON_B,
-                label: "Back".to_string(),
-                position: PromptPosition::Right,
-                command: || Command::ChangeView(View::SeekBar),
-            }],
+                }),
+                left: Some(ButtonAction {
+                    label: "Seek back".to_string(),
+                    position: PromptPosition::None,
+                    command: || {
+                        Command::ChangeView(View::SeekBar {
+                            seek_speed: Some(SeekSpeed::default()),
+                        })
+                    },
+                }),
+                right: Some(ButtonAction {
+                    label: "Seek forward".to_string(),
+                    position: PromptPosition::None,
+                    command: || {
+                        Command::ChangeView(View::SeekBar {
+                            seek_speed: Some(SeekSpeed::default()),
+                        })
+                    },
+                }),
+                ..Default::default()
+            },
+            View::Characters => Actions {
+                b: Some(ButtonAction {
+                    label: "Back".to_string(),
+                    position: PromptPosition::Right,
+                    command: || Command::ChangeView(View::SeekBar { seek_speed: None }),
+                }),
+                ..Default::default()
+            },
         }
     }
 }
 
+#[derive(Default)]
+struct Actions {
+    a: Option<ButtonAction>,
+    b: Option<ButtonAction>,
+    x: Option<ButtonAction>,
+    y: Option<ButtonAction>,
+    l1: Option<ButtonAction>,
+    l2: Option<ButtonAction>,
+    r1: Option<ButtonAction>,
+    r2: Option<ButtonAction>,
+    up: Option<ButtonAction>,
+    down: Option<ButtonAction>,
+    left: Option<ButtonAction>,
+    right: Option<ButtonAction>,
+    select: Option<ButtonAction>,
+    start: Option<ButtonAction>,
+    home: Option<ButtonAction>,
+}
+
+impl Actions {
+    fn get(&self, button: Button) -> Option<&ButtonAction> {
+        match button {
+            Button::East => self.a.as_ref(),
+            Button::South => self.b.as_ref(),
+            Button::North => self.x.as_ref(),
+            Button::West => self.y.as_ref(),
+            Button::LeftTrigger => self.l1.as_ref(),
+            Button::LeftTrigger2 => self.l2.as_ref(),
+            Button::RightTrigger => self.r1.as_ref(),
+            Button::RightTrigger2 => self.r2.as_ref(),
+            Button::DPadUp => self.up.as_ref(),
+            Button::DPadDown => self.down.as_ref(),
+            Button::DPadLeft => self.left.as_ref(),
+            Button::DPadRight => self.right.as_ref(),
+            Button::Select => self.select.as_ref(),
+            Button::Start => self.start.as_ref(),
+            Button::Mode => self.home.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (Button, &ButtonAction)> {
+        [
+            (Button::East, self.a.as_ref()),
+            (Button::South, self.b.as_ref()),
+            (Button::North, self.x.as_ref()),
+            (Button::West, self.y.as_ref()),
+            (Button::LeftTrigger, self.l1.as_ref()),
+            (Button::LeftTrigger2, self.l2.as_ref()),
+            (Button::RightTrigger, self.r1.as_ref()),
+            (Button::RightTrigger2, self.r2.as_ref()),
+            (Button::DPadUp, self.up.as_ref()),
+            (Button::DPadDown, self.down.as_ref()),
+            (Button::DPadLeft, self.left.as_ref()),
+            (Button::DPadRight, self.right.as_ref()),
+            (Button::Select, self.select.as_ref()),
+            (Button::Start, self.start.as_ref()),
+            (Button::Mode, self.home.as_ref()),
+        ]
+        .into_iter()
+        .filter_map(|(button, action)| action.map(|a| (button, a)))
+    }
+}
+
 struct ButtonAction {
-    button: Button,
     label: String,
     position: PromptPosition,
     command: fn() -> Command,
@@ -376,6 +564,10 @@ enum Command {
     ChangeView(View),
     Toast(Toast),
     MpvCommand(MpvCommand),
+    DoneSeeking,
+    CancelSeeking,
+    SeekFaster,
+    SeekSlower,
     Quit,
 }
 

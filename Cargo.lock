@@ -327,7 +327,6 @@ dependencies = [
 [[package]]
 name = "egui-wlr-layer"
 version = "0.1.0"
-source = "git+https://github.com/darkwater/egui-wlr-layer#1b829d4b1b6b5075eabb21f93ef6e58ad7ff5a60"
 dependencies = [
  "egui",
  "egui-wgpu",
