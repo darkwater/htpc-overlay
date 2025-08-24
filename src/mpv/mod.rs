@@ -1,11 +1,15 @@
+use core::time::Duration;
 use std::{
     io::{self, BufRead, BufReader, ErrorKind, Write as _},
     os::unix::net::UnixStream,
+    time::Instant,
 };
 
 use egui::ahash::{HashMap, HashMapExt as _};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+use crate::SeekSpeed;
 
 use self::command::{Command, Event, EventOrResponse, Response};
 
@@ -16,6 +20,17 @@ pub struct Mpv {
     observed_properties: HashMap<String, Value>,
     next_observe_id: i32,
     event_buffer: Vec<Event>,
+    seek_state: Option<SeekState>,
+}
+
+struct SeekState {
+    speed: SeekSpeed,
+    exact: bool,
+    ended: Option<Instant>,
+
+    // from before seek
+    pos: f32,
+    paused: bool,
 }
 
 impl Mpv {
@@ -31,6 +46,7 @@ impl Mpv {
             observed_properties: HashMap::new(),
             next_observe_id: 0,
             event_buffer: Vec::new(),
+            seek_state: None,
         }
     }
 
@@ -115,9 +131,9 @@ impl Mpv {
     pub fn handle_event(&mut self, event: Event) {
         match event {
             Event::PropertyChange { data, name } => {
-                if name != "percent-pos" {
-                    // eprintln!("Property change: {} = {}", name, data);
-                }
+                // if name != "percent-pos" {
+                //     eprintln!("Property change: {} = {}", name, data);
+                // }
                 self.observed_properties.insert(name, data);
             }
             Event::Unknown => {
@@ -134,9 +150,17 @@ impl Mpv {
         Ok(())
     }
 
-    pub fn get_property<T: DeserializeOwned>(&mut self, name: &str) -> T {
+    pub fn get_property_cached<T: DeserializeOwned>(&self, name: &str) -> Option<T> {
         if let Some(value) = self.observed_properties.get(name) {
-            serde_json::from_value(value.clone()).expect("Failed to deserialize property value")
+            serde_json::from_value(value.clone()).ok()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_property<T: DeserializeOwned>(&mut self, name: &str) -> T {
+        if let Some(value) = self.get_property_cached(name) {
+            value
         } else {
             self.observe_property(name)
                 .expect("Failed to observe property");
@@ -168,6 +192,132 @@ impl Mpv {
 
     pub fn cycle_property(&mut self, name: &str) -> io::Result<()> {
         self.command::<()>(Command::cycle_property(name))?;
+        Ok(())
+    }
+
+    pub fn pause(&mut self) -> io::Result<()> {
+        self.set_property("pause", true)
+    }
+
+    pub fn unpause(&mut self) -> io::Result<()> {
+        self.set_property("pause", false)
+    }
+
+    fn seek_state(&mut self) -> &mut SeekState {
+        match self.seek_state {
+            Some(SeekState {
+                ended: Some(ended), ..
+            }) if ended.elapsed() < Duration::from_secs(60) => {
+                let pos = self.get_property("percent-pos");
+                let paused = self.get_property("pause");
+
+                self.pause().ok();
+
+                let state = self.seek_state.as_mut().unwrap();
+                state.pos = pos;
+                state.paused = paused;
+                state.ended = None;
+
+                state
+            }
+
+            Some(ref mut state @ SeekState { ended: None, .. }) => state,
+
+            Some(SeekState { ended: Some(_), .. }) | None => {
+                self.seek_state = Some(SeekState {
+                    speed: Default::default(),
+                    exact: false,
+                    ended: None,
+
+                    pos: self.get_property("percent-pos"),
+                    paused: self.get_property("pause"),
+                });
+
+                self.pause().ok();
+
+                self.seek_state.as_mut().unwrap()
+            }
+        }
+    }
+
+    fn seek_inner(&mut self, forward: bool) -> io::Result<()> {
+        let state = self.seek_state();
+
+        let mut seconds = state.speed.duration().as_secs_f32();
+        if !forward {
+            seconds = -seconds;
+        }
+
+        let exact = state.exact;
+        self.command::<()>(Command::seek(seconds, exact))?;
+
+        Ok(())
+    }
+
+    pub fn seek_forward(&mut self) -> io::Result<()> {
+        self.seek_inner(true)
+    }
+
+    pub fn seek_backward(&mut self) -> io::Result<()> {
+        self.seek_inner(false)
+    }
+
+    pub fn seek_faster(&mut self) {
+        if let Some(SeekState {
+            speed: ref mut seek_speed,
+            ..
+        }) = self.seek_state
+            && let Some(new_speed) = seek_speed.longer()
+        {
+            *seek_speed = new_speed;
+        }
+    }
+
+    pub fn seek_slower(&mut self) {
+        if let Some(SeekState {
+            speed: ref mut seek_speed,
+            ..
+        }) = self.seek_state
+            && let Some(new_speed) = seek_speed.shorter()
+        {
+            *seek_speed = new_speed;
+        }
+    }
+
+    pub fn seek_exact(&self) -> bool {
+        self.seek_state.as_ref().is_some_and(|s| s.exact)
+    }
+
+    pub fn toggle_seek_exact(&mut self) {
+        if let Some(SeekState { ref mut exact, .. }) = self.seek_state {
+            *exact = !*exact;
+        }
+    }
+
+    pub fn seek_speed(&self) -> Option<SeekSpeed> {
+        self.seek_state.as_ref().map(|s| s.speed)
+    }
+
+    pub fn finish_seek(&mut self) -> io::Result<()> {
+        if let Some(SeekState {
+            paused: false,
+            ref mut ended,
+            ..
+        }) = self.seek_state
+        {
+            *ended = Some(Instant::now());
+            self.unpause()?;
+        }
+        Ok(())
+    }
+
+    pub fn cancel_seek(&mut self) -> io::Result<()> {
+        if let Some(SeekState { pos, paused, .. }) = self.seek_state.take() {
+            self.command::<()>(Command::set_property("percent-pos", pos))?;
+            if !paused {
+                self.unpause()?;
+            }
+        }
         Ok(())
     }
 }

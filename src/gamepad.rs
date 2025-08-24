@@ -1,14 +1,12 @@
 use std::time::{Duration, Instant};
 
 use egui::{Align, FontSelection, RichText, Style, Widget, text::LayoutJob};
-use gilrs::{Axis, Button, EventType, Gilrs};
+use gilrs::{
+    Axis, Button, EventType, Filter, Gilrs, GilrsBuilder,
+    ev::filter::{FilterFn, Repeat, axis_dpad_to_button},
+};
 
-use crate::{Command, toast::Toast};
-
-pub const BUTTON_A: Button = Button::East;
-pub const BUTTON_B: Button = Button::South;
-pub const BUTTON_X: Button = Button::North;
-pub const BUTTON_Y: Button = Button::West;
+use crate::{Event, toast::Toast};
 
 pub struct Gamepad {
     gilrs: Gilrs,
@@ -19,39 +17,41 @@ pub struct Gamepad {
 impl Gamepad {
     pub fn new() -> Self {
         Self {
-            gilrs: Gilrs::new().expect("Failed to initialize Gilrs"),
+            gilrs: GilrsBuilder::new()
+                .with_default_filters(false)
+                .build()
+                .expect("Failed to initialize Gilrs"),
             just_pressed: Vec::new(),
             last_input: Instant::now(),
         }
     }
 
-    pub fn update(&mut self) -> Command {
+    pub fn update(&mut self) -> Event {
         self.just_pressed.clear();
 
-        while let Some(gilrs::Event { id, event, .. }) = self.gilrs.next_event() {
+        while let Some(gilrs::Event { id, event, .. }) = self
+            .gilrs
+            .next_event()
+            .filter_ev(&LeftStickToDPad { threshold: 0.3 }, &mut self.gilrs)
+            .filter_ev(&axis_dpad_to_button, &mut self.gilrs)
+            .filter_ev(
+                &Repeat {
+                    after: Duration::from_millis(400),
+                    every: Duration::from_millis(100),
+                },
+                &mut self.gilrs,
+            )
+        {
             println!("New event from {}: {:?}", id, event);
 
             self.last_input = Instant::now();
 
             match event {
-                EventType::ButtonPressed(button, _) => self.just_pressed.push(button),
-                EventType::AxisChanged(Axis::LeftStickX, value, _) if value < 0. => {
-                    self.just_pressed.push(Button::DPadLeft);
-                }
-                EventType::AxisChanged(Axis::LeftStickX, value, _) if value > 0. => {
-                    self.just_pressed.push(Button::DPadRight);
-                }
-                EventType::AxisChanged(Axis::LeftStickY, value, _) if value < 0. => {
-                    // self.just_pressed.push(Button::DPadDown);
-                    return Command::Toast(Toast::GamepadConnected {
-                        name: self.gilrs.gamepad(id).name().to_string(),
-                    });
-                }
-                EventType::AxisChanged(Axis::LeftStickY, value, _) if value > 0. => {
-                    self.just_pressed.push(Button::DPadUp);
+                EventType::ButtonPressed(button, _) | EventType::ButtonRepeated(button, _) => {
+                    self.just_pressed.push(button)
                 }
                 EventType::Connected => {
-                    return Command::Toast(Toast::GamepadConnected {
+                    return Event::Toast(Toast::GamepadConnected {
                         name: self.gilrs.gamepad(id).name().to_string(),
                     });
                 }
@@ -59,19 +59,11 @@ impl Gamepad {
             }
         }
 
-        Command::None
+        Event::None
     }
 
     pub fn get_just_pressed(&self) -> Vec<Button> {
         self.just_pressed.clone()
-    }
-
-    pub fn just_pressed(&self, button: Button) -> bool {
-        self.just_pressed.contains(&button)
-    }
-
-    pub fn just_pressed_any(&self) -> bool {
-        !self.just_pressed.is_empty()
     }
 
     pub fn inactive_for(&self, duration: Duration) -> bool {
@@ -133,4 +125,42 @@ pub fn button_prompt(button: Button, label: &str) -> impl Widget {
     );
 
     egui::Label::new(job)
+}
+
+struct LeftStickToDPad {
+    threshold: f32,
+}
+
+impl FilterFn for LeftStickToDPad {
+    fn filter(&self, ev: Option<gilrs::Event>, _gilrs: &mut Gilrs) -> Option<gilrs::Event> {
+        let mut ev = ev?;
+
+        match &mut ev.event {
+            EventType::AxisChanged(axis @ Axis::LeftStickX, value, _code) => {
+                *axis = Axis::DPadX;
+
+                if *value < -self.threshold {
+                    *value = -1.0;
+                } else if *value > self.threshold {
+                    *value = 1.0;
+                } else {
+                    *value = 0.0;
+                }
+            }
+            EventType::AxisChanged(axis @ Axis::LeftStickY, value, _code) => {
+                *axis = Axis::DPadY;
+
+                if *value < -self.threshold {
+                    *value = -1.0;
+                } else if *value > self.threshold {
+                    *value = 1.0;
+                } else {
+                    *value = 0.0;
+                }
+            }
+            _ => {}
+        }
+
+        Some(ev)
+    }
 }

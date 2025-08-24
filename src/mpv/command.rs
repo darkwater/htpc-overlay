@@ -1,5 +1,3 @@
-use std::io;
-
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -27,9 +25,10 @@ impl Command {
         }
     }
 
-    pub fn write_to(self, stream: &mut impl io::Write) -> io::Result<()> {
-        let cmd_str = serde_json::to_string(&self.command)?;
-        stream.write_all(cmd_str.as_bytes())
+    pub fn seek(seconds: f32, exact: bool) -> Command {
+        Command {
+            command: json!(["seek", seconds, if exact { "exact" } else { "keyframes" }]),
+        }
     }
 }
 

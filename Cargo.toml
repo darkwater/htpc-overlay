@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# egui-wlr-layer = { git = "https://github.com/darkwater/egui-wlr-layer" }
-egui-wlr-layer = { path = "../downloads/egui-wlr-layer/" }
+egui-wlr-layer = { git = "https://github.com/darkwater/egui-wlr-layer" }
+# egui-wlr-layer = { path = "../downloads/egui-wlr-layer/" }
 
 chrono     = "0.4.41"
 egui       = "0.31.1"
