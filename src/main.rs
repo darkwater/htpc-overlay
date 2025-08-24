@@ -6,8 +6,8 @@ use core::{
 };
 
 use egui::{
-    Align, Align2, Color32, Direction, FontData, FontFamily, FontId, Layout, ProgressBar, RichText,
-    Stroke, UiBuilder, Widget as _,
+    Align, Align2, Color32, Direction, FocusDirection, FontData, FontFamily, FontId, Frame, Layout,
+    ProgressBar, RichText, Stroke, UiBuilder, Widget as _,
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
     style::Selection,
 };
@@ -64,6 +64,7 @@ struct App {
     view: View,
     mpv: Mpv,
     toasts: Vec<SpawnedToast>,
+    activate_pressed: bool,
 }
 
 impl egui_wlr_layer::App for App {
@@ -100,6 +101,8 @@ impl egui_wlr_layer::App for App {
             return;
         }
 
+        self.activate_pressed = false;
+
         let ev = self.gamepad.update();
         self.handle_event(ev);
 
@@ -112,14 +115,14 @@ impl egui_wlr_layer::App for App {
         let just_pressed = self.gamepad.get_just_pressed();
         for button in just_pressed {
             let command = actions.get(button);
-            self.handle_command(command);
+            self.handle_command(command, ctx);
         }
 
-        if self.view == View::SeekBar && self.gamepad.inactive_for(Duration::from_secs(5)) {
-            self.handle_command(Command::HideUi);
+        if self.view.hide_on_inactive() && self.gamepad.inactive_for(Duration::from_secs(5)) {
+            self.handle_command(Command::HideUi, ctx);
         }
 
-        if self.view != View::Hidden {
+        if self.view.show_prompts() {
             egui::TopBottomPanel::bottom("button prompts")
                 .show_separator_line(false)
                 .show(ctx, |ui| {
@@ -190,25 +193,47 @@ impl egui_wlr_layer::App for App {
 }
 
 impl App {
-    fn handle_command(&mut self, cmd: Command) {
+    fn handle_command(&mut self, cmd: Command, ctx: &egui::Context) {
         match cmd {
             Command::None => {}
+
+            Command::ShowMiniSeek if self.view == View::MiniSeek => {
+                self.change_view(View::Hidden);
+            }
+            Command::ShowMiniSeek => {
+                self.change_view(View::MiniSeek);
+            }
             Command::ShowUi => {
                 self.change_view(View::SeekBar);
             }
             Command::HideUi => {
                 self.change_view(View::Hidden);
             }
+            Command::ShowMenu => {
+                self.change_view(View::Menu);
+            }
+
+            Command::MoveFocus(dir) => {
+                ctx.memory_mut(|m| m.move_focus(dir));
+            }
+            Command::Activate => {
+                self.activate_pressed = true;
+            }
+
             Command::TogglePause => {
                 self.mpv.cycle_property("pause").unwrap();
             }
-            Command::SeekForward => {
+
+            Command::StartSeeking => {
                 self.change_view(View::Seeking);
-                self.mpv.seek_forward().unwrap()
             }
-            Command::SeekBackward => {
-                self.change_view(View::Seeking);
-                self.mpv.seek_backward().unwrap()
+            Command::SeekForward => self.mpv.seek_forward().unwrap(),
+            Command::SeekBackward => self.mpv.seek_backward().unwrap(),
+            Command::SeekForwardStateless => {
+                self.mpv.seek_stateless(10., false).unwrap();
+            }
+            Command::SeekBackwardStateless => {
+                self.mpv.seek_stateless(-10., false).unwrap();
             }
             Command::DoneSeeking => {
                 self.change_view(View::SeekBar);
@@ -227,9 +252,11 @@ impl App {
             Command::SeekExact => {
                 self.mpv.toggle_seek_exact();
             }
+
             Command::CharactersDebug => {
                 self.change_view(View::Characters);
             }
+
             Command::Quit => {
                 EXIT.store(true, Ordering::Relaxed);
             }
@@ -259,9 +286,21 @@ impl App {
 enum View {
     #[default]
     Hidden,
+    MiniSeek,
     SeekBar,
     Seeking,
+    Menu,
     Characters,
+}
+
+impl View {
+    fn show_prompts(self) -> bool {
+        !matches!(self, View::Hidden | View::MiniSeek)
+    }
+
+    fn hide_on_inactive(self) -> bool {
+        matches!(self, View::SeekBar | View::MiniSeek)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -320,6 +359,18 @@ impl View {
     fn draw(&self, ctx: &egui::Context, app: &mut App) {
         match self {
             View::Hidden => {}
+            View::MiniSeek => {
+                egui::TopBottomPanel::bottom("mini seek")
+                    .show_separator_line(false)
+                    .frame(Frame::NONE)
+                    .min_height(4.)
+                    .default_height(4.)
+                    .show(ctx, |ui| {
+                        ProgressBar::new(app.mpv.get_property::<f32>("percent-pos") / 100.)
+                            .desired_height(4.)
+                            .ui(ui);
+                    });
+            }
             View::SeekBar => {
                 egui::TopBottomPanel::bottom("seek ui")
                     .show_separator_line(false)
@@ -397,6 +448,29 @@ impl View {
                         ProgressBar::new(pos).desired_height(4.).ui(ui);
                     });
             }
+            View::Menu => {
+                egui::SidePanel::left("menu")
+                    .show_separator_line(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.heading("Menu");
+
+                        let button = ui.button("Hide UI");
+                        if ctx.memory(|m| m.focused().is_none()) {
+                            button.request_focus();
+                        }
+                        if button.has_focus() && app.activate_pressed {
+                            app.handle_command(Command::HideUi, ctx);
+                        }
+
+                        if ui.button("Quit").has_focus() && app.activate_pressed {
+                            app.handle_command(Command::Quit, ctx);
+                        }
+                        if ui.button("Quit").has_focus() && app.activate_pressed {
+                            app.handle_command(Command::Quit, ctx);
+                        }
+                    });
+            }
             View::Characters => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -419,22 +493,25 @@ impl View {
 
     fn button_actions(&self) -> Actions {
         match self {
-            View::Hidden => Actions {
-                a: Command::ShowUi,
+            View::Hidden | View::MiniSeek => Actions {
+                a: Command::StartSeeking,
                 b: Command::ShowUi,
                 x: Command::TogglePause,
                 y: Command::ShowUi,
-                left: Command::SeekBackward,
-                right: Command::SeekForward,
+                up: Command::ShowMenu,
+                left: Command::SeekBackwardStateless,
+                right: Command::SeekForwardStateless,
                 l2: Command::CharactersDebug,
+                select: Command::ShowMiniSeek,
                 ..Actions::default()
             },
             View::SeekBar => Actions {
+                a: Command::StartSeeking,
                 b: Command::HideUi,
                 x: Command::TogglePause,
                 start: Command::Quit,
-                left: Command::SeekBackward,
-                right: Command::SeekForward,
+                left: Command::SeekBackwardStateless,
+                right: Command::SeekForwardStateless,
                 ..Actions::default()
             },
             View::Seeking => Actions {
@@ -445,6 +522,15 @@ impl View {
                 down: Command::SeekSlower,
                 left: Command::SeekBackward,
                 right: Command::SeekForward,
+                ..Actions::default()
+            },
+            View::Menu => Actions {
+                a: Command::Activate,
+                b: Command::HideUi,
+                up: Command::MoveFocus(FocusDirection::Up),
+                down: Command::MoveFocus(FocusDirection::Down),
+                left: Command::MoveFocus(FocusDirection::Left),
+                right: Command::MoveFocus(FocusDirection::Right),
                 ..Actions::default()
             },
             View::Characters => Actions {
@@ -514,17 +600,30 @@ enum PromptPosition {
 enum Command {
     #[default]
     None,
+
+    ShowMiniSeek,
     ShowUi,
     HideUi,
+    ShowMenu,
+
+    MoveFocus(FocusDirection),
+    Activate,
+
     TogglePause,
+
+    StartSeeking,
     SeekBackward,
     SeekForward,
+    SeekBackwardStateless,
+    SeekForwardStateless,
     DoneSeeking,
     CancelSeeking,
     SeekFaster,
     SeekSlower,
     SeekExact,
+
     CharactersDebug,
+
     Quit,
 }
 
@@ -538,19 +637,32 @@ impl Command {
     fn label(self, app: &App) -> &'static str {
         match self {
             Command::None => "(none)",
+
+            Command::ShowMiniSeek => "Show position",
             Command::ShowUi => "Show UI",
             Command::HideUi => "Hide UI",
+            Command::ShowMenu => "Menu",
+
+            Command::MoveFocus(_) => "Move Focus",
+            Command::Activate => "Activate",
+
             Command::TogglePause if app.mpv.get_property_cached("pause") == Some(true) => "Play",
             Command::TogglePause => "Pause",
+
+            Command::StartSeeking => "Seek",
             Command::SeekBackward => "Seek Backward",
             Command::SeekForward => "Seek Forward",
+            Command::SeekBackwardStateless => "Seek Backward",
+            Command::SeekForwardStateless => "Seek Forward",
             Command::DoneSeeking => "Done",
             Command::CancelSeeking => "Cancel",
             Command::SeekFaster => "Faster",
             Command::SeekSlower => "Slower",
             Command::SeekExact if app.mpv.seek_exact() => "Keyframes",
             Command::SeekExact => "Exact",
+
             Command::CharactersDebug => "Characters",
+
             Command::Quit => "Quit",
         }
     }

@@ -284,8 +284,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "ecolor"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
+source = "git+https://github.com/darkwater/egui?branch=focus_direction_0.31#4915d70dc94a56a6f4e19ea6239834ae4918b75e"
 dependencies = [
  "bytemuck",
  "emath",
@@ -294,8 +293,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dd34cec49ab55d85ebf70139cb1ccd29c977ef6b6ba4fe85489d6877ee9ef3"
+source = "git+https://github.com/darkwater/egui?branch=focus_direction_0.31#4915d70dc94a56a6f4e19ea6239834ae4918b75e"
 dependencies = [
  "ahash",
  "bitflags 2.9.2",
@@ -341,8 +339,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
+source = "git+https://github.com/darkwater/egui?branch=focus_direction_0.31#4915d70dc94a56a6f4e19ea6239834ae4918b75e"
 dependencies = [
  "bytemuck",
 ]
@@ -350,8 +347,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
+source = "git+https://github.com/darkwater/egui?branch=focus_direction_0.31#4915d70dc94a56a6f4e19ea6239834ae4918b75e"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -367,8 +363,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc7e7a64c02cf7a5b51e745a9e45f60660a286f151c238b9d397b3e923f5082f"
+source = "git+https://github.com/darkwater/egui?branch=focus_direction_0.31#4915d70dc94a56a6f4e19ea6239834ae4918b75e"
 
 [[package]]
 name = "equivalent"
@@ -1103,9 +1098,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.142"
+version = "1.0.143"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "030fedb782600dcbd6f02d479bf0d817ac3bb40d644745b769d6a96bc3afc5a7"
+checksum = "d401abef1d108fbd9cbaebc3e46611f4b1021f714a0597a71f41ee463f5f4a5a"
 dependencies = [
  "itoa",
  "memchr",

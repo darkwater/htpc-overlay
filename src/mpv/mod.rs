@@ -262,6 +262,11 @@ impl Mpv {
         self.seek_inner(false)
     }
 
+    pub fn seek_stateless(&mut self, seconds: f32, exact: bool) -> io::Result<()> {
+        self.command::<()>(Command::seek(seconds, exact))?;
+        Ok(())
+    }
+
     pub fn seek_faster(&mut self) {
         if let Some(SeekState {
             speed: ref mut seek_speed,
@@ -300,13 +305,16 @@ impl Mpv {
 
     pub fn finish_seek(&mut self) -> io::Result<()> {
         if let Some(SeekState {
-            paused: false,
+            paused,
             ref mut ended,
             ..
         }) = self.seek_state
         {
             *ended = Some(Instant::now());
-            self.unpause()?;
+
+            if !paused {
+                self.unpause()?;
+            }
         }
         Ok(())
     }

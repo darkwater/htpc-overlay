@@ -29,19 +29,21 @@ impl Gamepad {
     pub fn update(&mut self) -> Event {
         self.just_pressed.clear();
 
-        while let Some(gilrs::Event { id, event, .. }) = self
+        while let Some(ev @ gilrs::Event { id, event, .. }) = self
             .gilrs
             .next_event()
             .filter_ev(&LeftStickToDPad { threshold: 0.3 }, &mut self.gilrs)
             .filter_ev(&axis_dpad_to_button, &mut self.gilrs)
             .filter_ev(
                 &Repeat {
-                    after: Duration::from_millis(400),
-                    every: Duration::from_millis(100),
+                    after: Duration::from_millis(300),
+                    every: Duration::from_secs(1) / 30,
                 },
                 &mut self.gilrs,
             )
         {
+            self.gilrs.update(&ev);
+
             println!("New event from {}: {:?}", id, event);
 
             self.last_input = Instant::now();
