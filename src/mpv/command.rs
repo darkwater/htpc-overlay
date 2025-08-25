@@ -46,6 +46,7 @@ pub enum Event {
         data: Value,
         name: String,
     },
+    Seek,
     #[serde(other)]
     Unknown,
 }

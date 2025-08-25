@@ -6,7 +6,7 @@ use std::{
 };
 
 use egui::ahash::{HashMap, HashMapExt as _};
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::SeekSpeed;
@@ -21,6 +21,7 @@ pub struct Mpv {
     next_observe_id: i32,
     event_buffer: Vec<Event>,
     seek_state: Option<SeekState>,
+    tracks: Vec<Track>,
 }
 
 struct SeekState {
@@ -41,13 +42,18 @@ impl Mpv {
             .set_nonblocking(true)
             .expect("Failed to set non-blocking mode");
 
-        Self {
+        let mut this = Self {
             socket: BufReader::new(stream),
             observed_properties: HashMap::new(),
             next_observe_id: 0,
             event_buffer: Vec::new(),
             seek_state: None,
-        }
+            tracks: Vec::new(),
+        };
+
+        this.observe_property("track-list").unwrap();
+
+        this
     }
 
     fn blocking<T>(&mut self, f: impl FnOnce(&mut Self) -> io::Result<T>) -> io::Result<T> {
@@ -134,8 +140,23 @@ impl Mpv {
                 // if name != "percent-pos" {
                 //     eprintln!("Property change: {} = {}", name, data);
                 // }
-                self.observed_properties.insert(name, data);
+
+                match name.as_str() {
+                    "track-list" => match serde_json::from_value::<Vec<Track>>(data.clone()) {
+                        Ok(tracks) => {
+                            eprintln!("Updated track list: {tracks:#?}");
+                            self.tracks = tracks;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse track-list: {e}\nTrack list: {data}");
+                        }
+                    },
+                    _ => {
+                        self.observed_properties.insert(name, data);
+                    }
+                }
             }
+            Event::Seek => {}
             Event::Unknown => {
                 eprintln!("Unknown event received");
             }
@@ -240,7 +261,24 @@ impl Mpv {
         }
     }
 
+    fn seconds_left(&self) -> Option<f32> {
+        let duration: f32 = self.get_property_cached("duration")?;
+        let position: f32 = self.get_property_cached("time-pos")?;
+
+        if duration > 0.0 && position >= 0.0 {
+            Some(duration - position)
+        } else {
+            None
+        }
+    }
+
+    pub fn start_seek(&mut self) {
+        self.seek_state();
+    }
+
     fn seek_inner(&mut self, forward: bool) -> io::Result<()> {
+        let seconds_left = self.seconds_left();
+
         let state = self.seek_state();
 
         let mut seconds = state.speed.duration().as_secs_f32();
@@ -248,7 +286,8 @@ impl Mpv {
             seconds = -seconds;
         }
 
-        let exact = state.exact;
+        let would_seek_past_end = forward && seconds_left.is_some_and(|left| left < seconds);
+        let exact = state.exact || would_seek_past_end;
         self.command::<()>(Command::seek(seconds, exact))?;
 
         Ok(())
@@ -328,10 +367,56 @@ impl Mpv {
         }
         Ok(())
     }
+
+    pub fn tracks(&self) -> &[Track] {
+        &self.tracks
+    }
+
+    pub fn video_tracks(&self) -> impl Iterator<Item = &Track> {
+        self.tracks.iter().filter(|t| t.ty == TrackType::Video)
+    }
+
+    pub fn audio_tracks(&self) -> impl Iterator<Item = &Track> {
+        self.tracks.iter().filter(|t| t.ty == TrackType::Audio)
+    }
+
+    pub fn sub_tracks(&self) -> impl Iterator<Item = &Track> {
+        self.tracks.iter().filter(|t| t.ty == TrackType::Sub)
+    }
 }
 
 impl Default for Mpv {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+pub struct Track {
+    #[serde(rename = "type")]
+    pub ty: TrackType,
+    /// The ID as it's used for --sid/--aid/--vid. This is unique within tracks of the same type
+    /// (sub/audio/video), but otherwise not.
+    pub id: i32,
+    /// Track title as it is stored in the file. Not always available.
+    pub title: Option<String>,
+    /// Track language as identified by the file. Not always available.
+    pub lang: Option<String>,
+    /// The codec name used by this track, for example h264. Unavailable in some rare cases.
+    pub codec: Option<String>,
+    /// The filename if the track is from an external file, unavailable otherwise.
+    pub external_filename: Option<String>,
+    /// yes/true if the track is currently decoded, no/false or unavailable otherwise.
+    #[serde(default)]
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackType {
+    Video,
+    Audio,
+    Sub,
 }

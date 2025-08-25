@@ -6,8 +6,8 @@ use core::{
 };
 
 use egui::{
-    Align, Align2, Color32, Direction, FocusDirection, FontData, FontFamily, FontId, Frame, Layout,
-    ProgressBar, RichText, Stroke, UiBuilder, Widget as _,
+    Align, Align2, Color32, Direction, FocusDirection, FontData, FontFamily, FontId, Frame, Id,
+    Layout, Margin, ProgressBar, Response, RichText, Stroke, UiBuilder, Widget as _,
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
     style::Selection,
 };
@@ -64,7 +64,6 @@ struct App {
     view: View,
     mpv: Mpv,
     toasts: Vec<SpawnedToast>,
-    activate_pressed: bool,
 }
 
 impl egui_wlr_layer::App for App {
@@ -79,8 +78,8 @@ impl egui_wlr_layer::App for App {
                     bg_fill: Color32::WHITE,
                     stroke: Stroke::new(1.0, Color32::RED),
                 },
-                extreme_bg_color: Color32::from_black_alpha(64),
-                panel_fill: Color32::from_black_alpha(128),
+                extreme_bg_color: Color32::from_black_alpha(128),
+                panel_fill: Color32::from_black_alpha(192),
                 ..Default::default()
             });
 
@@ -101,7 +100,7 @@ impl egui_wlr_layer::App for App {
             return;
         }
 
-        self.activate_pressed = false;
+        ctx.memory_mut(|m| m.data.insert_temp(Id::NULL, Activated(false)));
 
         let ev = self.gamepad.update();
         self.handle_event(ev);
@@ -118,7 +117,9 @@ impl egui_wlr_layer::App for App {
             self.handle_command(command, ctx);
         }
 
-        if self.view.hide_on_inactive() && self.gamepad.inactive_for(Duration::from_secs(5)) {
+        if let Some(limit) = self.view.hide_on_inactive()
+            && self.gamepad.inactive_for(limit)
+        {
             self.handle_command(Command::HideUi, ctx);
         }
 
@@ -217,7 +218,7 @@ impl App {
                 ctx.memory_mut(|m| m.move_focus(dir));
             }
             Command::Activate => {
-                self.activate_pressed = true;
+                ctx.memory_mut(|m| m.data.insert_temp(Id::NULL, Activated(true)));
             }
 
             Command::TogglePause => {
@@ -225,6 +226,7 @@ impl App {
             }
 
             Command::StartSeeking => {
+                self.mpv.start_seek();
                 self.change_view(View::Seeking);
             }
             Command::SeekForward => self.mpv.seek_forward().unwrap(),
@@ -295,67 +297,17 @@ enum View {
 
 impl View {
     fn show_prompts(self) -> bool {
-        !matches!(self, View::Hidden | View::MiniSeek)
+        !matches!(self, View::Hidden | View::MiniSeek | View::Menu)
     }
 
-    fn hide_on_inactive(self) -> bool {
-        matches!(self, View::SeekBar | View::MiniSeek)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-enum SeekSpeed {
-    Second,
-    #[default]
-    FiveSeconds,
-    ThirtySeconds,
-    Minute,
-    TenMinutes,
-}
-
-impl SeekSpeed {
-    fn duration(self) -> Duration {
+    fn hide_on_inactive(self) -> Option<Duration> {
         match self {
-            SeekSpeed::Second => Duration::from_secs(1),
-            SeekSpeed::FiveSeconds => Duration::from_secs(5),
-            SeekSpeed::ThirtySeconds => Duration::from_secs(30),
-            SeekSpeed::Minute => Duration::from_secs(60),
-            SeekSpeed::TenMinutes => Duration::from_secs(600),
+            View::MiniSeek => Some(Duration::from_secs(2)),
+            View::SeekBar => Some(Duration::from_secs(5)),
+            _ => None,
         }
     }
 
-    fn label(self) -> &'static str {
-        match self {
-            SeekSpeed::Second => "1s",
-            SeekSpeed::FiveSeconds => "5s",
-            SeekSpeed::ThirtySeconds => "30s",
-            SeekSpeed::Minute => "1m",
-            SeekSpeed::TenMinutes => "10m",
-        }
-    }
-
-    fn longer(self) -> Option<Self> {
-        match self {
-            SeekSpeed::Second => Some(SeekSpeed::FiveSeconds),
-            SeekSpeed::FiveSeconds => Some(SeekSpeed::ThirtySeconds),
-            SeekSpeed::ThirtySeconds => Some(SeekSpeed::Minute),
-            SeekSpeed::Minute => Some(SeekSpeed::TenMinutes),
-            SeekSpeed::TenMinutes => None,
-        }
-    }
-
-    fn shorter(self) -> Option<Self> {
-        match self {
-            SeekSpeed::Second => None,
-            SeekSpeed::FiveSeconds => Some(SeekSpeed::Second),
-            SeekSpeed::ThirtySeconds => Some(SeekSpeed::FiveSeconds),
-            SeekSpeed::Minute => Some(SeekSpeed::ThirtySeconds),
-            SeekSpeed::TenMinutes => Some(SeekSpeed::Minute),
-        }
-    }
-}
-
-impl View {
     fn draw(&self, ctx: &egui::Context, app: &mut App) {
         match self {
             View::Hidden => {}
@@ -363,8 +315,7 @@ impl View {
                 egui::TopBottomPanel::bottom("mini seek")
                     .show_separator_line(false)
                     .frame(Frame::NONE)
-                    .min_height(4.)
-                    .default_height(4.)
+                    .exact_height(4.)
                     .show(ctx, |ui| {
                         ProgressBar::new(app.mpv.get_property::<f32>("percent-pos") / 100.)
                             .desired_height(4.)
@@ -449,27 +400,67 @@ impl View {
                     });
             }
             View::Menu => {
+                let id_focused = Id::new("menu focused");
+
+                let mut focused = ctx.memory(|m| m.data.get_temp::<MenuEntry>(id_focused));
+
                 egui::SidePanel::left("menu")
                     .show_separator_line(false)
                     .resizable(false)
+                    .frame({
+                        Frame::new()
+                            .inner_margin(Margin::symmetric(2, 2))
+                            .fill(ctx.style().visuals.panel_fill)
+                    })
+                    .exact_width(200.)
                     .show(ctx, |ui| {
-                        ui.heading("Menu");
+                        ui.with_layout(
+                            Layout::bottom_up(Align::Min).with_cross_justify(true),
+                            |ui| {
+                                ui.spacing_mut().interact_size.y = 24.;
+                                ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
+                                    Color32::TRANSPARENT;
 
-                        let button = ui.button("Hide UI");
-                        if ctx.memory(|m| m.focused().is_none()) {
-                            button.request_focus();
-                        }
-                        if button.has_focus() && app.activate_pressed {
-                            app.handle_command(Command::HideUi, ctx);
-                        }
+                                for (idx, entry) in MenuEntry::iter().enumerate() {
+                                    let resp = ui.button(entry.label());
 
-                        if ui.button("Quit").has_focus() && app.activate_pressed {
-                            app.handle_command(Command::Quit, ctx);
-                        }
-                        if ui.button("Quit").has_focus() && app.activate_pressed {
-                            app.handle_command(Command::Quit, ctx);
-                        }
+                                    if idx == 0 {
+                                        resp.autofocus();
+                                    }
+
+                                    if resp.has_focus() {
+                                        focused = Some(entry);
+                                    }
+                                }
+                            },
+                        );
                     });
+
+                if let Some(entry) = focused {
+                    ctx.memory_mut(|m| m.data.insert_temp(id_focused, entry));
+
+                    egui::SidePanel::left("submenu")
+                        .show_separator_line(false)
+                        .resizable(false)
+                        .frame({
+                            Frame::new()
+                                .inner_margin(Margin::symmetric(2, 2))
+                                .fill(ctx.style().visuals.panel_fill)
+                        })
+                        .exact_width(200.)
+                        .show(ctx, |ui| {
+                            ui.with_layout(
+                                Layout::bottom_up(Align::Min).with_cross_justify(true),
+                                |ui| {
+                                    ui.spacing_mut().interact_size.y = 24.;
+                                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
+                                        Color32::TRANSPARENT;
+
+                                    entry.draw(ui, app);
+                                },
+                            );
+                        });
+                }
             }
             View::Characters => {
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -498,20 +489,20 @@ impl View {
                 b: Command::ShowUi,
                 x: Command::TogglePause,
                 y: Command::ShowUi,
-                up: Command::ShowMenu,
                 left: Command::SeekBackwardStateless,
                 right: Command::SeekForwardStateless,
                 l2: Command::CharactersDebug,
                 select: Command::ShowMiniSeek,
+                start: Command::ShowMenu,
                 ..Actions::default()
             },
             View::SeekBar => Actions {
                 a: Command::StartSeeking,
                 b: Command::HideUi,
                 x: Command::TogglePause,
-                start: Command::Quit,
                 left: Command::SeekBackwardStateless,
                 right: Command::SeekForwardStateless,
+                start: Command::ShowMenu,
                 ..Actions::default()
             },
             View::Seeking => Actions {
@@ -531,12 +522,65 @@ impl View {
                 down: Command::MoveFocus(FocusDirection::Down),
                 left: Command::MoveFocus(FocusDirection::Left),
                 right: Command::MoveFocus(FocusDirection::Right),
+                start: Command::HideUi,
                 ..Actions::default()
             },
             View::Characters => Actions {
                 b: Command::HideUi,
                 ..Actions::default()
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum SeekSpeed {
+    Second,
+    #[default]
+    FiveSeconds,
+    ThirtySeconds,
+    Minute,
+    TenMinutes,
+}
+
+impl SeekSpeed {
+    fn duration(self) -> Duration {
+        match self {
+            SeekSpeed::Second => Duration::from_secs(1),
+            SeekSpeed::FiveSeconds => Duration::from_secs(5),
+            SeekSpeed::ThirtySeconds => Duration::from_secs(30),
+            SeekSpeed::Minute => Duration::from_secs(60),
+            SeekSpeed::TenMinutes => Duration::from_secs(600),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            SeekSpeed::Second => "1s",
+            SeekSpeed::FiveSeconds => "5s",
+            SeekSpeed::ThirtySeconds => "30s",
+            SeekSpeed::Minute => "1m",
+            SeekSpeed::TenMinutes => "10m",
+        }
+    }
+
+    fn longer(self) -> Option<Self> {
+        match self {
+            SeekSpeed::Second => Some(SeekSpeed::FiveSeconds),
+            SeekSpeed::FiveSeconds => Some(SeekSpeed::ThirtySeconds),
+            SeekSpeed::ThirtySeconds => Some(SeekSpeed::Minute),
+            SeekSpeed::Minute => Some(SeekSpeed::TenMinutes),
+            SeekSpeed::TenMinutes => None,
+        }
+    }
+
+    fn shorter(self) -> Option<Self> {
+        match self {
+            SeekSpeed::Second => None,
+            SeekSpeed::FiveSeconds => Some(SeekSpeed::Second),
+            SeekSpeed::ThirtySeconds => Some(SeekSpeed::FiveSeconds),
+            SeekSpeed::Minute => Some(SeekSpeed::ThirtySeconds),
+            SeekSpeed::TenMinutes => Some(SeekSpeed::Minute),
         }
     }
 }
@@ -670,7 +714,14 @@ impl Command {
     fn show_prompt(self) -> bool {
         !matches!(
             self,
-            Command::None | Command::ShowUi | Command::SeekBackward | Command::SeekForward
+            Command::None
+                | Command::ShowUi
+                | Command::SeekBackward
+                | Command::SeekForward
+                | Command::SeekBackwardStateless
+                | Command::SeekForwardStateless
+                | Command::MoveFocus(_)
+                | Command::Activate
         )
     }
 }
@@ -722,5 +773,100 @@ fn button_prompt_position(button: &Button) -> PromptPosition {
         | Button::Z => PromptPosition::Right,
 
         Button::Unknown => unreachable!(),
+    }
+}
+
+trait ResponseExt: Sized {
+    fn autofocus(&self);
+    fn activated(&self) -> bool;
+}
+
+impl ResponseExt for Response {
+    fn autofocus(&self) {
+        if self.ctx.memory(|m| m.focused().is_none()) {
+            self.request_focus();
+        }
+    }
+
+    fn activated(&self) -> bool {
+        self.has_focus()
+            && self
+                .ctx
+                .memory(|m| m.data.get_temp::<Activated>(Id::NULL).unwrap_or_default())
+                .0
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct Activated(bool);
+
+#[derive(Clone, Copy)]
+enum MenuEntry {
+    Volume,
+    Subtitles,
+    AudioTrack,
+    PlaybackSpeed,
+    Playlist,
+}
+
+impl MenuEntry {
+    fn label(&self) -> &'static str {
+        match self {
+            MenuEntry::Volume => "Volume",
+            MenuEntry::Subtitles => "Subtitles",
+            MenuEntry::AudioTrack => "Audio Track",
+            MenuEntry::PlaybackSpeed => "Playback Speed",
+            MenuEntry::Playlist => "Playlist",
+        }
+    }
+
+    fn iter() -> impl Iterator<Item = MenuEntry> {
+        [
+            MenuEntry::Volume,
+            MenuEntry::Subtitles,
+            MenuEntry::AudioTrack,
+            MenuEntry::PlaybackSpeed,
+            MenuEntry::Playlist,
+        ]
+        .into_iter()
+    }
+
+    fn draw(&self, ui: &mut egui::Ui, app: &mut App) {
+        match self {
+            MenuEntry::Subtitles => {
+                let mut visible = app.mpv.get_property("sub-visibility");
+                if ui.checkbox(&mut visible, "Enabled").activated() {
+                    app.mpv.set_property("sub-visibility", !visible).ok();
+                }
+
+                let mut set_track = None;
+
+                for track in app.mpv.sub_tracks() {
+                    let label = match (&track.title, &track.lang, &track.codec) {
+                        (Some(title), Some(lang), _) => format!("{title} ({lang})"),
+                        (Some(title), None, _) => title.to_string(),
+                        (None, Some(lang), _) => lang.to_string(),
+                        (None, None, Some(codec)) => format!("({codec})"),
+                        (None, None, None) => format!("#{}", track.id),
+                    };
+
+                    let res = ui.button(RichText::new(label).color(if track.selected {
+                        BLUE
+                    } else {
+                        Color32::WHITE
+                    }));
+
+                    if res.activated() {
+                        set_track = Some(track.id);
+                    }
+                }
+
+                if let Some(id) = set_track {
+                    app.mpv.set_property("sid", id).ok();
+                }
+            }
+            MenuEntry::Volume => {}
+            _ => {} // TODO: handle all
+        }
     }
 }
