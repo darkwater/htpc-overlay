@@ -211,7 +211,7 @@ impl App {
                 self.change_view(View::Hidden);
             }
             Command::ShowMenu => {
-                self.change_view(View::Menu);
+                self.change_view(View::Menu { submenu: None });
             }
 
             Command::MoveFocus(dir) => {
@@ -271,6 +271,9 @@ impl App {
             Event::Toast(toast) => {
                 self.toasts.push(SpawnedToast::new(toast));
             }
+            Event::LastGamepadDisconnected => {
+                self.change_view(View::Hidden);
+            }
         }
     }
 
@@ -291,13 +294,15 @@ enum View {
     MiniSeek,
     SeekBar,
     Seeking,
-    Menu,
+    Menu {
+        submenu: Option<MenuEntry>,
+    },
     Characters,
 }
 
 impl View {
     fn show_prompts(self) -> bool {
-        !matches!(self, View::Hidden | View::MiniSeek | View::Menu)
+        !matches!(self, View::Hidden | View::MiniSeek | View::Menu { .. })
     }
 
     fn hide_on_inactive(self) -> Option<Duration> {
@@ -399,11 +404,7 @@ impl View {
                         ProgressBar::new(pos).desired_height(4.).ui(ui);
                     });
             }
-            View::Menu => {
-                let id_focused = Id::new("menu focused");
-
-                let mut focused = ctx.memory(|m| m.data.get_temp::<MenuEntry>(id_focused));
-
+            View::Menu { submenu: None } => {
                 egui::SidePanel::left("menu")
                     .show_separator_line(false)
                     .resizable(false)
@@ -421,46 +422,57 @@ impl View {
                                 ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
                                     Color32::TRANSPARENT;
 
-                                for (idx, entry) in MenuEntry::iter().enumerate() {
-                                    let resp = ui.button(entry.label());
+                                let id_autofocus = Id::new("menu autofocus");
+                                let autofocus = ui
+                                    .memory(|m| m.data.get_temp::<MenuEntry>(id_autofocus))
+                                    .unwrap_or(MenuEntry::iter().next().unwrap());
 
-                                    if idx == 0 {
+                                for entry in MenuEntry::iter() {
+                                    let resp = ui.add_enabled(
+                                        entry.enabled(app),
+                                        egui::Button::new(entry.label()),
+                                    );
+
+                                    if entry == autofocus {
                                         resp.autofocus();
                                     }
 
-                                    if resp.has_focus() {
-                                        focused = Some(entry);
+                                    if resp.activated() {
+                                        app.view = View::Menu {
+                                            submenu: Some(entry),
+                                        };
+
+                                        ui.memory_mut(|m| m.data.insert_temp(id_autofocus, entry));
                                     }
                                 }
                             },
                         );
                     });
+            }
+            View::Menu {
+                submenu: Some(submenu),
+            } => {
+                egui::SidePanel::left("submenu")
+                    .show_separator_line(false)
+                    .resizable(false)
+                    .frame({
+                        Frame::new()
+                            .inner_margin(Margin::symmetric(2, 2))
+                            .fill(ctx.style().visuals.panel_fill)
+                    })
+                    .exact_width(submenu.width())
+                    .show(ctx, |ui| {
+                        ui.with_layout(
+                            Layout::bottom_up(Align::Min).with_cross_justify(true),
+                            |ui| {
+                                ui.spacing_mut().interact_size.y = 24.;
+                                ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
+                                    Color32::TRANSPARENT;
 
-                if let Some(entry) = focused {
-                    ctx.memory_mut(|m| m.data.insert_temp(id_focused, entry));
-
-                    egui::SidePanel::left("submenu")
-                        .show_separator_line(false)
-                        .resizable(false)
-                        .frame({
-                            Frame::new()
-                                .inner_margin(Margin::symmetric(2, 2))
-                                .fill(ctx.style().visuals.panel_fill)
-                        })
-                        .exact_width(200.)
-                        .show(ctx, |ui| {
-                            ui.with_layout(
-                                Layout::bottom_up(Align::Min).with_cross_justify(true),
-                                |ui| {
-                                    ui.spacing_mut().interact_size.y = 24.;
-                                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
-                                        Color32::TRANSPARENT;
-
-                                    entry.draw(ui, app);
-                                },
-                            );
-                        });
-                }
+                                submenu.draw(ui, app);
+                            },
+                        );
+                    });
             }
             View::Characters => {
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -515,9 +527,13 @@ impl View {
                 right: Command::SeekForward,
                 ..Actions::default()
             },
-            View::Menu => Actions {
+            View::Menu { submenu } => Actions {
                 a: Command::Activate,
-                b: Command::HideUi,
+                b: if submenu.is_some() {
+                    Command::ShowMenu
+                } else {
+                    Command::HideUi
+                },
                 up: Command::MoveFocus(FocusDirection::Up),
                 down: Command::MoveFocus(FocusDirection::Down),
                 left: Command::MoveFocus(FocusDirection::Left),
@@ -675,6 +691,7 @@ enum Command {
 enum Event {
     None,
     Toast(Toast),
+    LastGamepadDisconnected,
 }
 
 impl Command {
@@ -800,7 +817,7 @@ impl ResponseExt for Response {
 #[derive(Clone, Copy, Default)]
 struct Activated(bool);
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuEntry {
     Volume,
     Subtitles,
@@ -829,6 +846,21 @@ impl MenuEntry {
             MenuEntry::Playlist,
         ]
         .into_iter()
+    }
+
+    fn enabled(self, app: &App) -> bool {
+        match self {
+            MenuEntry::Subtitles => !app.mpv.sub_tracks().is_empty(),
+            MenuEntry::AudioTrack => app.mpv.audio_tracks().len() > 1,
+            _ => true,
+        }
+    }
+
+    fn width(&self) -> f32 {
+        match self {
+            MenuEntry::Playlist => 500.,
+            _ => 200.,
+        }
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut App) {
@@ -865,8 +897,51 @@ impl MenuEntry {
                     app.mpv.set_property("sid", id).ok();
                 }
             }
+            MenuEntry::AudioTrack => {
+                let mut set_track = None;
+
+                for track in app.mpv.audio_tracks() {
+                    let label = match (&track.title, &track.lang, &track.codec) {
+                        (Some(title), Some(lang), _) => format!("{title} ({lang})"),
+                        (Some(title), None, _) => title.to_string(),
+                        (None, Some(lang), _) => lang.to_string(),
+                        (None, None, Some(codec)) => format!("({codec})"),
+                        (None, None, None) => format!("#{}", track.id),
+                    };
+
+                    let res = ui.button(RichText::new(label).color(if track.selected {
+                        BLUE
+                    } else {
+                        Color32::WHITE
+                    }));
+
+                    if res.activated() {
+                        set_track = Some(track.id);
+                    }
+                }
+
+                if let Some(id) = set_track {
+                    app.mpv.set_property("aid", id).ok();
+                }
+            }
+            MenuEntry::Playlist => {
+                let playlist = app.mpv.playlist();
+
+                for entry in playlist {
+                    let button =
+                        ui.button(RichText::new(entry.display_name()).color(if entry.current {
+                            BLUE
+                        } else {
+                            Color32::WHITE
+                        }));
+
+                    if entry.current {
+                        button.autofocus();
+                    }
+                }
+            }
             MenuEntry::Volume => {}
-            _ => {} // TODO: handle all
+            MenuEntry::PlaybackSpeed => {}
         }
     }
 }

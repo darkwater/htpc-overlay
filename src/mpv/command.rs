@@ -43,6 +43,7 @@ pub struct Response<T> {
 #[serde(tag = "event")]
 pub enum Event {
     PropertyChange {
+        #[serde(default)]
         data: Value,
         name: String,
     },

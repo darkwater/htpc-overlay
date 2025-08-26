@@ -44,8 +44,6 @@ impl Gamepad {
         {
             self.gilrs.update(&ev);
 
-            println!("New event from {}: {:?}", id, event);
-
             self.last_input = Instant::now();
 
             match event {
@@ -56,6 +54,9 @@ impl Gamepad {
                     return Event::Toast(Toast::GamepadConnected {
                         name: self.gilrs.gamepad(id).name().to_string(),
                     });
+                }
+                EventType::Disconnected if self.gilrs.gamepads().next().is_none() => {
+                    return Event::LastGamepadDisconnected;
                 }
                 _ => {}
             }

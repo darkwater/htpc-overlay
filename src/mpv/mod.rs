@@ -22,6 +22,8 @@ pub struct Mpv {
     event_buffer: Vec<Event>,
     seek_state: Option<SeekState>,
     tracks: Vec<Track>,
+    chapters: Vec<Chapter>,
+    playlist: Vec<PlaylistEntry>,
 }
 
 struct SeekState {
@@ -49,9 +51,13 @@ impl Mpv {
             event_buffer: Vec::new(),
             seek_state: None,
             tracks: Vec::new(),
+            chapters: Vec::new(),
+            playlist: Vec::new(),
         };
 
+        this.observe_property("playlist").unwrap();
         this.observe_property("track-list").unwrap();
+        this.observe_property("chapter-list").unwrap();
 
         this
     }
@@ -136,29 +142,34 @@ impl Mpv {
 
     pub fn handle_event(&mut self, event: Event) {
         match event {
-            Event::PropertyChange { data, name } => {
-                // if name != "percent-pos" {
-                //     eprintln!("Property change: {} = {}", name, data);
-                // }
-
-                match name.as_str() {
-                    "track-list" => match serde_json::from_value::<Vec<Track>>(data.clone()) {
-                        Ok(tracks) => {
-                            eprintln!("Updated track list: {tracks:#?}");
-                            self.tracks = tracks;
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse track-list: {e}\nTrack list: {data}");
-                        }
-                    },
-                    _ => {
-                        self.observed_properties.insert(name, data);
-                    }
+            Event::PropertyChange { data, name } => match name.as_str() {
+                "playlist" => {
+                    Self::store_deserialized_property(&name, data, &mut self.playlist);
                 }
-            }
+                "track-list" => {
+                    Self::store_deserialized_property(&name, data, &mut self.tracks);
+                }
+                "chapter-list" => {
+                    Self::store_deserialized_property(&name, data, &mut self.chapters);
+                }
+                _ => {
+                    self.observed_properties.insert(name, data);
+                }
+            },
             Event::Seek => {}
             Event::Unknown => {
                 eprintln!("Unknown event received");
+            }
+        }
+    }
+
+    fn store_deserialized_property<T: DeserializeOwned>(name: &str, data: Value, field: &mut T) {
+        match serde_json::from_value::<T>(data.clone()) {
+            Ok(value) => {
+                *field = value;
+            }
+            Err(e) => {
+                eprintln!("Failed to parse {}: {e}\nData: {data}", name);
             }
         }
     }
@@ -368,20 +379,35 @@ impl Mpv {
         Ok(())
     }
 
-    pub fn tracks(&self) -> &[Track] {
-        &self.tracks
+    pub fn tracks_of_type(&self, ty: TrackType) -> &[Track] {
+        let first = self.tracks.iter().position(|t| t.ty == ty);
+        let last = self.tracks.iter().rposition(|t| t.ty == ty);
+
+        if let (Some(first), Some(last)) = (first, last) {
+            &self.tracks[first..=last]
+        } else {
+            &[]
+        }
     }
 
-    pub fn video_tracks(&self) -> impl Iterator<Item = &Track> {
-        self.tracks.iter().filter(|t| t.ty == TrackType::Video)
+    pub fn video_tracks(&self) -> &[Track] {
+        self.tracks_of_type(TrackType::Video)
     }
 
-    pub fn audio_tracks(&self) -> impl Iterator<Item = &Track> {
-        self.tracks.iter().filter(|t| t.ty == TrackType::Audio)
+    pub fn audio_tracks(&self) -> &[Track] {
+        self.tracks_of_type(TrackType::Audio)
     }
 
-    pub fn sub_tracks(&self) -> impl Iterator<Item = &Track> {
-        self.tracks.iter().filter(|t| t.ty == TrackType::Sub)
+    pub fn sub_tracks(&self) -> &[Track] {
+        self.tracks_of_type(TrackType::Sub)
+    }
+
+    pub fn chapters(&self) -> &[Chapter] {
+        &self.chapters
+    }
+
+    pub fn playlist(&self) -> &[PlaylistEntry] {
+        &self.playlist
     }
 }
 
@@ -413,10 +439,51 @@ pub struct Track {
     pub selected: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrackType {
     Video,
     Audio,
     Sub,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+pub struct PlaylistEntry {
+    pub filename: String,
+    /// true if the playlist-playing-pos property points to this entry
+    #[serde(default)]
+    pub playing: bool,
+    /// true if the playlist-current-pos property points to this entry
+    #[serde(default)]
+    pub current: bool,
+    /// Name of the Nth entry. Available if the playlist file contains such fields and mpv's parser
+    /// supports it for the given playlist format, or if the playlist entry has been opened before
+    /// and a media-title other than filename has been acquired.
+    pub title: Option<String>,
+    /// Unique ID for this entry. This is an automatically assigned integer ID that is unique for
+    /// the entire life time of the current mpv core instance. Other commands, events, etc. use
+    /// this as playlist_entry_id fields.
+    pub id: i32,
+    /// The original path of the playlist for this entry before mpv ex- panded it. Unavailable if
+    /// the file was not originally associated with a playlist in some way.
+    pub playlist_path: Option<String>,
+}
+
+impl PlaylistEntry {
+    pub fn display_name(&self) -> &str {
+        match self {
+            Self { title: Some(t), .. } => t,
+            Self { filename, .. } => filename,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+pub struct Chapter {
+    pub title: Option<String>,
+    pub start: Duration,
 }
