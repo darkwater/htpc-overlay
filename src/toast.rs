@@ -63,6 +63,8 @@ pub fn draw(toasts: &mut Vec<SpawnedToast>, ctx: &egui::Context) {
 #[derive(Debug)]
 pub enum Toast {
     GamepadConnected { name: String },
+    GamepadDisconnected { name: String },
+    LastGamepadDisconnected,
 }
 
 impl Toast {
@@ -71,6 +73,13 @@ impl Toast {
             Toast::GamepadConnected { name } => {
                 ui.label("Gamepad connected");
                 ui.label(RichText::new(name).size(10.));
+            }
+            Toast::GamepadDisconnected { name } => {
+                ui.label("Gamepad disconnected");
+                ui.label(RichText::new(name).size(10.));
+            }
+            Toast::LastGamepadDisconnected => {
+                ui.label("Last gamepad disconnected");
             }
         }
     }

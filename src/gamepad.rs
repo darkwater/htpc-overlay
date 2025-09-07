@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align, FontSelection, RichText, Style, Widget, text::LayoutJob};
 use gilrs::{
-    Axis, Button, EventType, Filter, Gilrs, GilrsBuilder,
+    Axis, Button, EventType, Filter, GamepadId, Gilrs, GilrsBuilder,
     ev::filter::{FilterFn, Repeat, axis_dpad_to_button},
 };
 
@@ -12,6 +12,7 @@ pub struct Gamepad {
     gilrs: Gilrs,
     just_pressed: Vec<Button>,
     last_input: Instant,
+    used_gamepads: Vec<GamepadId>,
 }
 
 impl Gamepad {
@@ -23,6 +24,7 @@ impl Gamepad {
                 .expect("Failed to initialize Gilrs"),
             just_pressed: Vec::new(),
             last_input: Instant::now(),
+            used_gamepads: Vec::new(),
         }
     }
 
@@ -44,6 +46,10 @@ impl Gamepad {
         {
             self.gilrs.update(&ev);
 
+            if !self.used_gamepads.contains(&id) {
+                self.used_gamepads.push(id);
+            }
+
             self.last_input = Instant::now();
 
             match event {
@@ -55,8 +61,20 @@ impl Gamepad {
                         name: self.gilrs.gamepad(id).name().to_string(),
                     });
                 }
-                EventType::Disconnected if self.gilrs.gamepads().next().is_none() => {
-                    return Event::LastGamepadDisconnected;
+                EventType::Disconnected => {
+                    if self.used_gamepads.is_empty() {
+                        continue;
+                    }
+
+                    self.used_gamepads.retain(|&g| g != id);
+
+                    if self.used_gamepads.is_empty() {
+                        return Event::LastGamepadDisconnected;
+                    } else {
+                        return Event::Toast(Toast::GamepadDisconnected {
+                            name: self.gilrs.gamepad(id).name().to_string(),
+                        });
+                    }
                 }
                 _ => {}
             }
