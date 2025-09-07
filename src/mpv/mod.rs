@@ -6,16 +6,18 @@ use std::{
 };
 
 use egui::ahash::{HashMap, HashMapExt as _};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use self::{
     command::{Command, Event, EventOrResponse, Response},
     seek_speed::SeekSpeed,
+    time::Time,
 };
 
 mod command;
 pub mod seek_speed;
+pub mod time;
 
 pub struct Mpv {
     socket: BufReader<UnixStream>,
@@ -24,7 +26,7 @@ pub struct Mpv {
     event_buffer: Vec<Event>,
     seek_state: Option<SeekState>,
     tracks: Vec<Track>,
-    chapters: Vec<Chapter>,
+    chapters: Vec<ChapterRaw>,
     playlist: Vec<PlaylistEntry>,
 }
 
@@ -57,6 +59,8 @@ impl Mpv {
             playlist: Vec::new(),
         };
 
+        this.observe_property("time-pos").unwrap();
+        this.observe_property("duration").unwrap();
         this.observe_property("playlist").unwrap();
         this.observe_property("track-list").unwrap();
         this.observe_property("chapter-list").unwrap();
@@ -204,7 +208,7 @@ impl Mpv {
                         && prop_name == name
                     {
                         return serde_json::from_value(data.clone())
-                            .expect("Failed to deserialize property value");
+                            .unwrap_or_else(|_| panic!("Failed to parse property {}", name));
                     }
                 }
 
@@ -213,7 +217,7 @@ impl Mpv {
         }
     }
 
-    pub fn set_property(&mut self, name: &str, value: impl Into<Value>) -> io::Result<()> {
+    pub fn set_property(&mut self, name: &str, value: impl Serialize) -> io::Result<()> {
         self.command::<()>(Command::set_property(name, value))?;
         Ok(())
     }
@@ -221,6 +225,22 @@ impl Mpv {
     pub fn cycle_property(&mut self, name: &str) -> io::Result<()> {
         self.command::<()>(Command::cycle_property(name))?;
         Ok(())
+    }
+
+    pub fn time_pos(&self) -> Option<Time> {
+        self.get_property_cached("time-pos")
+    }
+
+    pub fn time_pos_fallback(&self) -> Time {
+        self.time_pos().unwrap_or(Time::ZERO)
+    }
+
+    pub fn duration(&self) -> Option<Time> {
+        self.get_property_cached("duration")
+    }
+
+    pub fn duration_fallback(&self) -> Time {
+        self.duration().unwrap_or(self.time_pos_fallback())
     }
 
     pub fn pause(&mut self) -> io::Result<()> {
@@ -268,11 +288,11 @@ impl Mpv {
         }
     }
 
-    fn seconds_left(&self) -> Option<f32> {
-        let duration: f32 = self.get_property_cached("duration")?;
-        let position: f32 = self.get_property_cached("time-pos")?;
+    fn seconds_left(&self) -> Option<Time> {
+        let duration: Time = self.duration()?;
+        let position: Time = self.time_pos()?;
 
-        if duration > 0.0 && position >= 0.0 {
+        if duration > Time::ZERO && position >= Time::ZERO {
             Some(duration - position)
         } else {
             None
@@ -288,7 +308,7 @@ impl Mpv {
 
         let state = self.seek_state();
 
-        let mut seconds = state.speed.duration().as_secs_f32();
+        let mut seconds = state.speed.time();
         if !forward {
             seconds = -seconds;
         }
@@ -308,7 +328,7 @@ impl Mpv {
         self.seek_inner(false)
     }
 
-    pub fn seek_stateless(&mut self, seconds: f32, exact: bool) -> io::Result<()> {
+    pub fn seek_stateless(&mut self, seconds: Time, exact: bool) -> io::Result<()> {
         self.command::<()>(Command::seek(seconds, exact))?;
         Ok(())
     }
@@ -375,9 +395,36 @@ impl Mpv {
         }
     }
 
-    #[expect(dead_code)]
-    pub fn chapters(&self) -> &[Chapter] {
-        &self.chapters
+    pub fn chapters(&self) -> Vec<Chapter<'_>> {
+        if self.chapters.is_empty() {
+            return vec![];
+        }
+
+        let current_chapter_index = self
+            .time_pos()
+            .and_then(|time_pos| self.chapters.iter().rposition(|c| c.time <= time_pos));
+
+        let starts = self.chapters.iter().map(|c| c.time);
+        let ends = self
+            .chapters
+            .iter()
+            .skip(1)
+            .map(|c| c.time)
+            .chain(std::iter::once(self.duration_fallback()));
+
+        let durations = starts.zip(ends).map(|(start, end)| end - start);
+
+        self.chapters
+            .iter()
+            .zip(durations)
+            .enumerate()
+            .map(|(index, (raw, duration))| Chapter {
+                title: raw.title.as_deref(),
+                start: raw.time,
+                current: current_chapter_index == Some(index),
+                duration,
+            })
+            .collect()
     }
 
     pub fn playlist(&self) -> &[PlaylistEntry] {
@@ -393,7 +440,7 @@ impl Default for Mpv {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct Track {
     #[serde(rename = "type")]
     pub ty: TrackType,
@@ -423,7 +470,7 @@ pub enum TrackType {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct PlaylistEntry {
     pub filename: String,
     /// true if the playlist-playing-pos property points to this entry
@@ -456,20 +503,15 @@ impl PlaylistEntry {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[allow(dead_code)]
-pub struct Chapter {
+pub struct ChapterRaw {
     pub title: Option<String>,
-    #[serde(deserialize_with = "from_secs")]
-    pub time: Duration,
+    pub time: Time,
 }
 
-fn from_secs<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let secs = f32::deserialize(deserializer)?;
-    if secs < 0.0 {
-        return Err(serde::de::Error::custom("Negative duration"));
-    }
-    Ok(Duration::from_secs_f32(secs))
+#[derive(Debug)]
+pub struct Chapter<'a> {
+    pub title: Option<&'a str>,
+    pub start: Time,
+    pub current: bool,
+    pub duration: Time,
 }

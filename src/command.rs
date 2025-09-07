@@ -5,6 +5,7 @@ use gilrs::Button;
 
 use crate::{
     App, EXIT,
+    mpv::time::Time,
     ui::{
         toast::{SpawnedToast, Toast},
         views::{
@@ -153,10 +154,10 @@ impl Command {
             Command::SeekForward => app.mpv.seek_forward().unwrap(),
             Command::SeekBackward => app.mpv.seek_backward().unwrap(),
             Command::SeekForwardStateless => {
-                app.mpv.seek_stateless(5., false).unwrap();
+                app.mpv.seek_stateless(Time::seconds(5), false).unwrap();
             }
             Command::SeekBackwardStateless => {
-                app.mpv.seek_stateless(-5., false).unwrap();
+                app.mpv.seek_stateless(Time::seconds(-5), false).unwrap();
             }
             Command::DoneSeeking => {
                 app.change_view(SeekBarView);

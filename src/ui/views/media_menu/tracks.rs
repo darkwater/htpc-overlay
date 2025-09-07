@@ -15,7 +15,7 @@ impl MediaMenu for TrackMenu {
     }
 
     fn enabled(&self, app: &crate::App) -> bool {
-        self.0 != TrackType::Sub || app.mpv.tracks_of_type(self.0).len() > 1
+        self.0 == TrackType::Sub || app.mpv.tracks_of_type(self.0).len() > 1
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App) {
@@ -23,8 +23,13 @@ impl MediaMenu for TrackMenu {
 
         let disabled = !app.mpv.tracks_of_type(self.0).iter().any(|t| t.selected);
 
-        let res =
-            ui.button(RichText::new("None").color(if disabled { BLUE } else { Color32::WHITE }));
+        let hidden = self.0 == TrackType::Sub && !app.mpv.get_property::<bool>("sub-visibility");
+
+        let res = ui.button(RichText::new("None").color(if disabled || hidden {
+            BLUE
+        } else {
+            Color32::WHITE
+        }));
 
         if disabled {
             res.autofocus();
@@ -42,7 +47,7 @@ impl MediaMenu for TrackMenu {
                 (None, None, None) => format!("#{}", track.id),
             };
 
-            let res = ui.button(RichText::new(label).color(if track.selected {
+            let res = ui.button(RichText::new(label).color(if !hidden && track.selected {
                 BLUE
             } else {
                 Color32::WHITE
@@ -58,6 +63,10 @@ impl MediaMenu for TrackMenu {
         }
 
         if let Some(id) = set_track {
+            if hidden {
+                app.mpv.set_property("sub-visibility", true).ok();
+            }
+
             let prop = match self.0 {
                 TrackType::Video => "vid",
                 TrackType::Audio => "aid",

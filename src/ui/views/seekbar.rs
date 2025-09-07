@@ -5,7 +5,6 @@ use egui::{Align, Layout, ProgressBar, RichText, Widget as _};
 use crate::{
     command::{Actions, Command},
     ui::View,
-    utils::seconds_to_mmss,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,15 +21,19 @@ impl View for SeekBarView {
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(seconds_to_mmss(app.mpv.get_property::<f32>("time-pos")))
-                            .size(10.),
+                        RichText::new(
+                            app.mpv
+                                .time_pos()
+                                .map(|t| t.mmss())
+                                .unwrap_or_else(|| "--:--".to_string()),
+                        )
+                        .size(10.),
                     );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(seconds_to_mmss(app.mpv.get_property::<f32>("duration")))
-                                .size(10.),
-                        );
-                    });
+                    if let Some(duration) = app.mpv.duration() {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.label(RichText::new(duration.mmss()).size(10.));
+                        });
+                    }
                 });
 
                 ui.add_space(-4.);

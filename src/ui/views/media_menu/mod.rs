@@ -9,12 +9,14 @@ use crate::{
     utils::ResponseExt as _,
 };
 
+mod chapters;
 mod playlist;
 mod tracks;
 
-fn entries() -> [Box<dyn MediaMenu>; 4] {
+fn entries() -> [Box<dyn MediaMenu>; 5] {
     [
         Box::new(playlist::PlaylistMenu),
+        Box::new(chapters::ChaptersMenu),
         Box::new(tracks::TrackMenu(TrackType::Video)),
         Box::new(tracks::TrackMenu(TrackType::Audio)),
         Box::new(tracks::TrackMenu(TrackType::Sub)),
@@ -115,8 +117,10 @@ impl View for MediaMenuView {
             x: Command::TogglePause,
             up: Command::MoveFocus(FocusDirection::Up),
             down: Command::MoveFocus(FocusDirection::Down),
-            left: Command::MoveFocus(FocusDirection::Left),
-            right: Command::MoveFocus(FocusDirection::Right),
+            // left: Command::MoveFocus(FocusDirection::Left),
+            // right: Command::MoveFocus(FocusDirection::Right),
+            left: Command::SeekBackwardStateless,
+            right: Command::SeekForwardStateless,
             start: Command::HideUi,
             ..Actions::default()
         }
@@ -127,7 +131,7 @@ pub trait MediaMenu: 'static {
     fn label(&self) -> &'static str;
     fn enabled(&self, app: &crate::App) -> bool;
     fn width(&self) -> f32 {
-        200.
+        300.
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App);

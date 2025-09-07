@@ -1,4 +1,4 @@
-use core::time::Duration;
+use super::time::Time;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum SeekSpeed {
@@ -11,13 +11,13 @@ pub enum SeekSpeed {
 }
 
 impl SeekSpeed {
-    pub fn duration(self) -> Duration {
+    pub fn time(self) -> Time {
         match self {
-            SeekSpeed::Second => Duration::from_secs(1),
-            SeekSpeed::FiveSeconds => Duration::from_secs(5),
-            SeekSpeed::ThirtySeconds => Duration::from_secs(30),
-            SeekSpeed::Minute => Duration::from_secs(60),
-            SeekSpeed::TenMinutes => Duration::from_secs(600),
+            SeekSpeed::Second => Time::seconds(1),
+            SeekSpeed::FiveSeconds => Time::seconds(5),
+            SeekSpeed::ThirtySeconds => Time::seconds(30),
+            SeekSpeed::Minute => Time::minutes(1),
+            SeekSpeed::TenMinutes => Time::minutes(10),
         }
     }
 

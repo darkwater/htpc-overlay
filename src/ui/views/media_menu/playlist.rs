@@ -32,6 +32,9 @@ impl MediaMenu for PlaylistMenu {
 
             if entry.current {
                 button.autofocus();
+                button.bg_progress_indicator(
+                    app.mpv.time_pos_fallback() / app.mpv.duration_fallback(),
+                );
             }
 
             if button.activated() {

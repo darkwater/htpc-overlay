@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::time::Time;
+
 #[derive(Serialize)]
 pub struct Command {
     command: Value,
@@ -13,9 +15,11 @@ impl Command {
         }
     }
 
-    pub fn set_property(name: &str, value: impl Into<Value>) -> Self {
+    pub fn set_property(name: &str, value: impl Serialize) -> Self {
+        let value = serde_json::to_value(value).expect("value to be serializable");
+
         Command {
-            command: serde_json::json!(["set_property", name, value.into()]),
+            command: serde_json::json!(["set_property", name, value]),
         }
     }
 
@@ -25,7 +29,7 @@ impl Command {
         }
     }
 
-    pub fn seek(seconds: f32, exact: bool) -> Command {
+    pub fn seek(seconds: Time, exact: bool) -> Command {
         Command {
             command: json!(["seek", seconds, if exact { "exact" } else { "keyframes" }]),
         }
