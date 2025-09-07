@@ -7,7 +7,7 @@ use core::{
 
 use egui::{
     Align, Align2, Color32, Direction, FocusDirection, FontData, FontFamily, FontId, Frame, Id,
-    Layout, Margin, ProgressBar, Response, RichText, Stroke, UiBuilder, Widget as _,
+    Layout, Margin, ProgressBar, Response, RichText, ScrollArea, Stroke, UiBuilder, Widget as _,
     epaint::text::{FontInsert, FontPriority, InsertFontFamily},
     style::Selection,
 };
@@ -232,10 +232,10 @@ impl App {
             Command::SeekForward => self.mpv.seek_forward().unwrap(),
             Command::SeekBackward => self.mpv.seek_backward().unwrap(),
             Command::SeekForwardStateless => {
-                self.mpv.seek_stateless(10., false).unwrap();
+                self.mpv.seek_stateless(5., false).unwrap();
             }
             Command::SeekBackwardStateless => {
-                self.mpv.seek_stateless(-10., false).unwrap();
+                self.mpv.seek_stateless(-5., false).unwrap();
             }
             Command::DoneSeeking => {
                 self.change_view(View::SeekBar);
@@ -462,16 +462,22 @@ impl View {
                     })
                     .exact_width(submenu.width())
                     .show(ctx, |ui| {
-                        ui.with_layout(
-                            Layout::bottom_up(Align::Min).with_cross_justify(true),
-                            |ui| {
-                                ui.spacing_mut().interact_size.y = 24.;
-                                ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
-                                    Color32::TRANSPARENT;
+                        ScrollArea::vertical()
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+                            )
+                            .show(ui, |ui| {
+                                ui.with_layout(
+                                    Layout::top_down(Align::Min).with_cross_justify(true),
+                                    |ui| {
+                                        ui.spacing_mut().interact_size.y = 24.;
+                                        ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
+                                            Color32::TRANSPARENT;
 
-                                submenu.draw(ui, app);
-                            },
-                        );
+                                        submenu.draw(ui, app);
+                                    },
+                                );
+                            });
                     });
             }
             View::Characters => {
@@ -534,6 +540,7 @@ impl View {
                 } else {
                     Command::HideUi
                 },
+                x: Command::TogglePause,
                 up: Command::MoveFocus(FocusDirection::Up),
                 down: Command::MoveFocus(FocusDirection::Down),
                 left: Command::MoveFocus(FocusDirection::Left),
@@ -866,12 +873,22 @@ impl MenuEntry {
     fn draw(&self, ui: &mut egui::Ui, app: &mut App) {
         match self {
             MenuEntry::Subtitles => {
-                let mut visible = app.mpv.get_property("sub-visibility");
-                if ui.checkbox(&mut visible, "Enabled").activated() {
-                    app.mpv.set_property("sub-visibility", !visible).ok();
-                }
-
                 let mut set_track = None;
+
+                let disabled = !app.mpv.sub_tracks().iter().any(|t| t.selected);
+
+                let res = ui.button(RichText::new("None").color(if disabled {
+                    BLUE
+                } else {
+                    Color32::WHITE
+                }));
+
+                if disabled {
+                    res.autofocus();
+                }
+                if res.activated() {
+                    set_track = Some(0);
+                }
 
                 for track in app.mpv.sub_tracks() {
                     let label = match (&track.title, &track.lang, &track.codec) {
@@ -888,6 +905,10 @@ impl MenuEntry {
                         Color32::WHITE
                     }));
 
+                    if track.selected {
+                        res.autofocus();
+                    }
+
                     if res.activated() {
                         set_track = Some(track.id);
                     }
@@ -899,6 +920,21 @@ impl MenuEntry {
             }
             MenuEntry::AudioTrack => {
                 let mut set_track = None;
+
+                let disabled = !app.mpv.audio_tracks().iter().any(|t| t.selected);
+
+                let res = ui.button(RichText::new("None").color(if disabled {
+                    BLUE
+                } else {
+                    Color32::WHITE
+                }));
+
+                if disabled {
+                    res.autofocus();
+                }
+                if res.activated() {
+                    set_track = Some(0);
+                }
 
                 for track in app.mpv.audio_tracks() {
                     let label = match (&track.title, &track.lang, &track.codec) {
@@ -915,6 +951,10 @@ impl MenuEntry {
                         Color32::WHITE
                     }));
 
+                    if track.selected {
+                        res.autofocus();
+                    }
+
                     if res.activated() {
                         set_track = Some(track.id);
                     }
@@ -927,7 +967,9 @@ impl MenuEntry {
             MenuEntry::Playlist => {
                 let playlist = app.mpv.playlist();
 
-                for entry in playlist {
+                let mut goto = None;
+
+                for (index, entry) in playlist.iter().enumerate() {
                     let button =
                         ui.button(RichText::new(entry.display_name()).color(if entry.current {
                             BLUE
@@ -938,6 +980,18 @@ impl MenuEntry {
                     if entry.current {
                         button.autofocus();
                     }
+
+                    if button.activated() {
+                        goto = Some(index);
+                    }
+
+                    if button.has_focus() {
+                        ui.scroll_to_rect(button.rect, None);
+                    }
+                }
+
+                if let Some(entry) = goto {
+                    app.mpv.set_property("playlist-pos", entry as i64).ok();
                 }
             }
             MenuEntry::Volume => {}
