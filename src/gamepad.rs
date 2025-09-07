@@ -6,7 +6,7 @@ use gilrs::{
     ev::filter::{FilterFn, Repeat, axis_dpad_to_button},
 };
 
-use crate::{Event, toast::Toast};
+use crate::{command::Event, ui::toast::Toast};
 
 pub struct Gamepad {
     gilrs: Gilrs,

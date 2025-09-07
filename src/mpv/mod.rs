@@ -9,11 +9,13 @@ use egui::ahash::{HashMap, HashMapExt as _};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use crate::SeekSpeed;
-
-use self::command::{Command, Event, EventOrResponse, Response};
+use self::{
+    command::{Command, Event, EventOrResponse, Response},
+    seek_speed::SeekSpeed,
+};
 
 mod command;
+pub mod seek_speed;
 
 pub struct Mpv {
     socket: BufReader<UnixStream>,
@@ -125,10 +127,7 @@ impl Mpv {
         if response.error == "success" {
             Ok(response.data)
         } else {
-            Err(io::Error::other(format!(
-                "mpv command error: {}",
-                response.error
-            )))
+            Err(io::Error::other(format!("mpv command error: {}", response.error)))
         }
     }
 
@@ -201,10 +200,7 @@ impl Mpv {
                 self.read_events().expect("Failed to read events");
 
                 for ev in &self.event_buffer {
-                    if let Event::PropertyChange {
-                        data,
-                        name: prop_name,
-                    } = ev
+                    if let Event::PropertyChange { data, name: prop_name } = ev
                         && prop_name == name
                     {
                         return serde_json::from_value(data.clone())
@@ -237,9 +233,9 @@ impl Mpv {
 
     fn seek_state(&mut self) -> &mut SeekState {
         match self.seek_state {
-            Some(SeekState {
-                ended: Some(ended), ..
-            }) if ended.elapsed() < Duration::from_secs(60) => {
+            Some(SeekState { ended: Some(ended), .. })
+                if ended.elapsed() < Duration::from_secs(60) =>
+            {
                 let pos = self.get_property("percent-pos");
                 let paused = self.get_property("pause");
 
@@ -318,10 +314,7 @@ impl Mpv {
     }
 
     pub fn seek_faster(&mut self) {
-        if let Some(SeekState {
-            speed: ref mut seek_speed,
-            ..
-        }) = self.seek_state
+        if let Some(SeekState { speed: ref mut seek_speed, .. }) = self.seek_state
             && let Some(new_speed) = seek_speed.longer()
         {
             *seek_speed = new_speed;
@@ -329,10 +322,7 @@ impl Mpv {
     }
 
     pub fn seek_slower(&mut self) {
-        if let Some(SeekState {
-            speed: ref mut seek_speed,
-            ..
-        }) = self.seek_state
+        if let Some(SeekState { speed: ref mut seek_speed, .. }) = self.seek_state
             && let Some(new_speed) = seek_speed.shorter()
         {
             *seek_speed = new_speed;
@@ -354,12 +344,7 @@ impl Mpv {
     }
 
     pub fn finish_seek(&mut self) -> io::Result<()> {
-        if let Some(SeekState {
-            paused,
-            ref mut ended,
-            ..
-        }) = self.seek_state
-        {
+        if let Some(SeekState { paused, ref mut ended, .. }) = self.seek_state {
             *ended = Some(Instant::now());
 
             if !paused {
@@ -390,18 +375,7 @@ impl Mpv {
         }
     }
 
-    pub fn video_tracks(&self) -> &[Track] {
-        self.tracks_of_type(TrackType::Video)
-    }
-
-    pub fn audio_tracks(&self) -> &[Track] {
-        self.tracks_of_type(TrackType::Audio)
-    }
-
-    pub fn sub_tracks(&self) -> &[Track] {
-        self.tracks_of_type(TrackType::Sub)
-    }
-
+    #[expect(dead_code)]
     pub fn chapters(&self) -> &[Chapter] {
         &self.chapters
     }
@@ -485,5 +459,17 @@ impl PlaylistEntry {
 #[allow(dead_code)]
 pub struct Chapter {
     pub title: Option<String>,
-    pub start: Duration,
+    #[serde(deserialize_with = "from_secs")]
+    pub time: Duration,
+}
+
+fn from_secs<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let secs = f32::deserialize(deserializer)?;
+    if secs < 0.0 {
+        return Err(serde::de::Error::custom("Negative duration"));
+    }
+    Ok(Duration::from_secs_f32(secs))
 }
