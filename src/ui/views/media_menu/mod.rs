@@ -12,9 +12,11 @@ use crate::{
 mod chapters;
 mod playlist;
 mod tracks;
+mod volume;
 
-fn entries() -> [Box<dyn MediaMenu>; 5] {
+fn entries() -> [Box<dyn MediaMenu>; 6] {
     [
+        Box::new(volume::VolumeMenu),
         Box::new(playlist::PlaylistMenu),
         Box::new(chapters::ChaptersMenu),
         Box::new(tracks::TrackMenu(TrackType::Video)),
@@ -107,6 +109,16 @@ impl View for MediaMenuView {
     }
 
     fn button_actions(&self) -> Actions {
+        let left_right = if self.submenu.as_ref().is_some_and(|m| m.catch_left_right()) {
+            Actions::default()
+        } else {
+            Actions {
+                left: Command::SeekBackwardStateless,
+                right: Command::SeekForwardStateless,
+                ..Actions::default()
+            }
+        };
+
         Actions {
             a: Command::Activate,
             b: if self.submenu.is_some() {
@@ -119,10 +131,8 @@ impl View for MediaMenuView {
             down: Command::MoveFocus(FocusDirection::Down),
             // left: Command::MoveFocus(FocusDirection::Left),
             // right: Command::MoveFocus(FocusDirection::Right),
-            left: Command::SeekBackwardStateless,
-            right: Command::SeekForwardStateless,
             start: Command::HideUi,
-            ..Actions::default()
+            ..left_right
         }
     }
 }
@@ -135,6 +145,10 @@ pub trait MediaMenu: 'static {
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App);
+
+    fn catch_left_right(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn MediaMenu {

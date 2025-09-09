@@ -87,6 +87,15 @@ impl Gamepad {
         self.just_pressed.clone()
     }
 
+    pub fn take_just_pressed(&mut self, button: Button) -> bool {
+        if let Some(idx) = self.just_pressed.iter().position(|&b| b == button) {
+            self.just_pressed.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn inactive_for(&self, duration: Duration) -> bool {
         self.last_input.elapsed() > duration
     }

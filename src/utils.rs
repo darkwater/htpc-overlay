@@ -1,9 +1,14 @@
-use egui::{Id, Response};
+use egui::{Align, Id, InnerResponse, Layout, Response, UiBuilder};
 
 pub trait ResponseExt: Sized {
     fn autofocus(&self);
     fn activated(&self) -> bool;
     fn bg_progress_indicator(&self, progress: f32);
+    fn ralign_overlay<T>(
+        &self,
+        ui: &mut egui::Ui,
+        add_contents: impl FnOnce(&mut egui::Ui) -> T,
+    ) -> InnerResponse<T>;
 }
 
 impl ResponseExt for Response {
@@ -30,6 +35,19 @@ impl ResponseExt for Response {
             2.,
             egui::Color32::from_white_alpha(8),
         );
+    }
+
+    fn ralign_overlay<T>(
+        &self,
+        ui: &mut egui::Ui,
+        add_contents: impl FnOnce(&mut egui::Ui) -> T,
+    ) -> InnerResponse<T> {
+        ui.allocate_new_ui(
+            UiBuilder::new()
+                .max_rect(self.rect)
+                .layout(Layout::right_to_left(Align::Center)),
+            add_contents,
+        )
     }
 }
 

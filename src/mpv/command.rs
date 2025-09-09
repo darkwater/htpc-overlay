@@ -29,6 +29,12 @@ impl Command {
         }
     }
 
+    pub fn add_property(name: &str, value: f32) -> Self {
+        Command {
+            command: serde_json::json!(["add", name, value]),
+        }
+    }
+
     pub fn seek(seconds: Time, exact: bool) -> Command {
         Command {
             command: json!(["seek", seconds, if exact { "exact" } else { "keyframes" }]),

@@ -195,9 +195,12 @@ impl Event {
                 app.toasts.push(SpawnedToast::new(toast));
             }
             Event::LastGamepadDisconnected => {
-                app.toasts
-                    .push(SpawnedToast::new(Toast::LastGamepadDisconnected));
-                app.change_view(HiddenView);
+                if !app.view.is::<HiddenView>() {
+                    app.toasts
+                        .push(SpawnedToast::new(Toast::LastGamepadDisconnected));
+
+                    app.change_view(HiddenView);
+                }
             }
         }
     }

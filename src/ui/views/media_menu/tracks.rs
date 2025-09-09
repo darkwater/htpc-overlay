@@ -15,7 +15,12 @@ impl MediaMenu for TrackMenu {
     }
 
     fn enabled(&self, app: &crate::App) -> bool {
-        self.0 == TrackType::Sub || app.mpv.tracks_of_type(self.0).len() > 1
+        match (self.0, app.mpv.tracks_of_type(self.0).len()) {
+            (TrackType::Video, 2..) => false,
+            (TrackType::Audio, 2..) => true,
+            (TrackType::Sub, 1..) => true,
+            _ => false,
+        }
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App) {

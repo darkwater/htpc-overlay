@@ -430,6 +430,11 @@ impl Mpv {
     pub fn playlist(&self) -> &[PlaylistEntry] {
         &self.playlist
     }
+
+    pub fn change_volume(&mut self, delta: f32) -> io::Result<()> {
+        self.command::<()>(Command::add_property("volume", delta))?;
+        Ok(())
+    }
 }
 
 impl Default for Mpv {
