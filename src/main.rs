@@ -1,3 +1,5 @@
+#![feature(slice_split_once)]
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use egui::{
@@ -11,6 +13,7 @@ use egui_wlr_layer::{
 
 use self::{
     command::Command,
+    dlna::Dlna,
     gamepad::Gamepad,
     mpv::Mpv,
     ui::{View, toast::SpawnedToast},
@@ -18,6 +21,7 @@ use self::{
 };
 
 mod command;
+mod dlna;
 mod gamepad;
 mod mpv;
 mod ui;
@@ -57,6 +61,7 @@ pub struct App {
     gamepad: Gamepad,
     view: Box<dyn ui::View>,
     mpv: Mpv,
+    dlna: Dlna,
     toasts: Vec<SpawnedToast>,
 }
 
@@ -113,7 +118,7 @@ impl egui_wlr_layer::App for App {
         ctx.memory_mut(|m| m.data.insert_temp(Id::NULL, Activated(false)));
 
         self.gamepad.update().execute(self);
-
+        self.dlna.update().execute(self);
         self.mpv.update().expect("mpv connection broke");
 
         let view = self.take_view();

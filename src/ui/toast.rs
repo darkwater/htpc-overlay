@@ -65,6 +65,7 @@ pub enum Toast {
     GamepadConnected { name: String },
     GamepadDisconnected { name: String },
     LastGamepadDisconnected,
+    DlnaDeviceDiscovered { name: String },
 }
 
 impl Toast {
@@ -80,6 +81,10 @@ impl Toast {
             }
             Toast::LastGamepadDisconnected => {
                 ui.label("Last gamepad disconnected");
+            }
+            Toast::DlnaDeviceDiscovered { name } => {
+                ui.label("DLNA device discovered");
+                ui.label(RichText::new(name).size(10.));
             }
         }
     }
