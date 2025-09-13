@@ -33,7 +33,20 @@ impl View for SeekBarView {
                                     .unwrap_or_else(|| "--:--".to_string()),
                             )
                             .size(10.),
-                        )
+                        );
+
+                        if let Some(segment) = app
+                            .mpv
+                            .sponsorblock_segments()
+                            .iter()
+                            .find(|s| s.contains(app.mpv.time_pos_fallback()))
+                        {
+                            ui.label(
+                                RichText::new(segment.category.label())
+                                    .size(10.)
+                                    .color(segment.category.color()),
+                            );
+                        }
                     },
                     |ui| {
                         if let Some(duration) = app.mpv.duration() {
@@ -42,9 +55,26 @@ impl View for SeekBarView {
                     },
                 );
 
-                ProgressBar::new(app.mpv.get_property::<f32>("percent-pos") / 100.)
+                let rect = ProgressBar::new(app.mpv.get_property::<f32>("percent-pos") / 100.)
                     .desired_height(4.)
-                    .ui(ui);
+                    .ui(ui)
+                    .rect;
+
+                let duration = app.mpv.duration_fallback();
+
+                for segment in app.mpv.sponsorblock_segments() {
+                    let start = rect.left() + rect.width() * (segment.start() / duration);
+                    let end = rect.left() + rect.width() * (segment.end() / duration);
+
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_max(
+                            egui::pos2(start, rect.top()),
+                            egui::pos2(end, rect.bottom()),
+                        ),
+                        0.,
+                        segment.category.color(),
+                    );
+                }
             });
     }
 

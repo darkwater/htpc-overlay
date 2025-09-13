@@ -17,6 +17,8 @@ impl View for HiddenView {
             y: Command::ShowUi,
             left: Command::SeekBackwardStateless,
             right: Command::SeekForwardStateless,
+            up: Command::VolumeUp,
+            down: Command::VolumeDown,
             select: Command::ShowMiniSeek,
             start: Command::ShowMenu,
             ..Actions::default()

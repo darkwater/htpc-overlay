@@ -10,11 +10,12 @@ use crate::{
 };
 
 mod chapters;
+mod info;
 mod playlist;
 mod tracks;
 mod volume;
 
-fn entries() -> [Box<dyn MediaMenu>; 6] {
+fn entries() -> [Box<dyn MediaMenu>; 7] {
     [
         Box::new(volume::VolumeMenu),
         Box::new(playlist::PlaylistMenu),
@@ -22,6 +23,7 @@ fn entries() -> [Box<dyn MediaMenu>; 6] {
         Box::new(tracks::TrackMenu(TrackType::Video)),
         Box::new(tracks::TrackMenu(TrackType::Audio)),
         Box::new(tracks::TrackMenu(TrackType::Sub)),
+        Box::new(info::InfoMenu),
     ]
 }
 
@@ -46,11 +48,7 @@ impl View for MediaMenuView {
             egui::SidePanel::left("submenu")
                 .show_separator_line(false)
                 .resizable(false)
-                .frame({
-                    Frame::new()
-                        .inner_margin(Margin::symmetric(2, 2))
-                        .fill(ctx.style().visuals.panel_fill)
-                })
+                .frame(submenu.frame(ctx))
                 .exact_width(submenu.width())
                 .show(ctx, |ui| {
                     ScrollArea::vertical()
@@ -79,7 +77,7 @@ impl View for MediaMenuView {
                         .inner_margin(Margin::symmetric(2, 2))
                         .fill(ctx.style().visuals.panel_fill)
                 })
-                .exact_width(200.)
+                .exact_width(150.)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::bottom_up(Align::Min).with_cross_justify(true), |ui| {
                         ui.spacing_mut().interact_size.y = 24.;
@@ -142,6 +140,11 @@ pub trait MediaMenu: 'static {
     fn enabled(&self, app: &crate::App) -> bool;
     fn width(&self) -> f32 {
         300.
+    }
+    fn frame(&self, ctx: &egui::Context) -> Frame {
+        Frame::new()
+            .inner_margin(Margin::symmetric(2, 2))
+            .fill(ctx.style().visuals.panel_fill)
     }
 
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App);

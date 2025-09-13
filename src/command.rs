@@ -42,6 +42,9 @@ pub enum Command {
     SeekSlower,
     SeekExact,
 
+    VolumeUp,
+    VolumeDown,
+
     // CharactersDebug,
     Quit,
 }
@@ -99,6 +102,9 @@ impl Command {
             Command::SeekSlower => "Slower",
             Command::SeekExact if app.mpv.seek_exact() => "Keyframes",
             Command::SeekExact => "Exact",
+
+            Command::VolumeUp => "Volume Up",
+            Command::VolumeDown => "Volume Down",
 
             // Command::CharactersDebug => "Characters",
             Command::Quit => "Quit",
@@ -175,6 +181,17 @@ impl Command {
             }
             Command::SeekExact => {
                 app.mpv.toggle_seek_exact();
+            }
+
+            Command::VolumeUp => {
+                if let Some(device) = app.dlna.devices().get_mut(0) {
+                    device.set_volume((device.volume() as f32 + 5.) as u8);
+                }
+            }
+            Command::VolumeDown => {
+                if let Some(device) = app.dlna.devices().get_mut(0) {
+                    device.set_volume((device.volume() as f32 - 5.) as u8);
+                }
             }
 
             // Command::CharactersDebug => {

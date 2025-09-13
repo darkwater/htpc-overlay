@@ -1,8 +1,7 @@
-use core::time::Duration;
 use std::{
     io::{self, BufRead, BufReader, ErrorKind, Write as _},
     os::unix::net::UnixStream,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use egui::ahash::{HashMap, HashMapExt as _};
@@ -17,6 +16,7 @@ use self::{
 
 mod command;
 pub mod seek_speed;
+mod sponsorblock;
 pub mod time;
 
 pub struct Mpv {
@@ -28,6 +28,8 @@ pub struct Mpv {
     tracks: Vec<Track>,
     chapters: Vec<ChapterRaw>,
     playlist: Vec<PlaylistEntry>,
+    metadata: Metadata,
+    sponsorblock_segments: Vec<sponsorblock::SkipSegment>,
 }
 
 struct SeekState {
@@ -57,6 +59,8 @@ impl Mpv {
             tracks: Vec::new(),
             chapters: Vec::new(),
             playlist: Vec::new(),
+            metadata: Metadata::default(),
+            sponsorblock_segments: Vec::new(),
         };
 
         this.observe_property("time-pos").unwrap();
@@ -64,6 +68,8 @@ impl Mpv {
         this.observe_property("playlist").unwrap();
         this.observe_property("track-list").unwrap();
         this.observe_property("chapter-list").unwrap();
+        this.observe_property("chapter-list").unwrap();
+        this.observe_property("metadata").unwrap();
 
         this
     }
@@ -155,7 +161,24 @@ impl Mpv {
                 "chapter-list" => {
                     Self::store_deserialized_property(&name, data, &mut self.chapters);
                 }
+                "metadata" => {
+                    Self::store_deserialized_property(&name, data, &mut self.metadata);
+
+                    if let Some(youtube_id) = self.metadata.youtube_id() {
+                        let res = sponsorblock::fetch_skip_segments(youtube_id);
+                        self.sponsorblock_segments = res.unwrap_or_default();
+                    }
+                }
                 _ => {
+                    if name == "time-pos"
+                        && let Some(segment) = self
+                            .sponsorblock_segments()
+                            .iter()
+                            .find(|s| s.contains(self.time_pos_fallback()))
+                    {
+                        self.seek_to(segment.end()).ok();
+                    }
+
                     self.observed_properties.insert(name, data);
                 }
             },
@@ -384,6 +407,11 @@ impl Mpv {
         Ok(())
     }
 
+    pub fn seek_to(&mut self, time: Time) -> io::Result<()> {
+        self.command::<()>(Command::set_property("time-pos", time))?;
+        Ok(())
+    }
+
     pub fn tracks_of_type(&self, ty: TrackType) -> &[Track] {
         let first = self.tracks.iter().position(|t| t.ty == ty);
         let last = self.tracks.iter().rposition(|t| t.ty == ty);
@@ -434,6 +462,14 @@ impl Mpv {
     pub fn change_volume(&mut self, delta: f32) -> io::Result<()> {
         self.command::<()>(Command::add_property("volume", delta))?;
         Ok(())
+    }
+
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
+    pub fn sponsorblock_segments(&self) -> &[sponsorblock::SkipSegment] {
+        &self.sponsorblock_segments
     }
 }
 
@@ -519,4 +555,59 @@ pub struct Chapter<'a> {
     pub start: Time,
     pub current: bool,
     pub duration: Time,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub struct Metadata {
+    pub artist: Option<String>,
+    #[expect(dead_code)]
+    pub comment: Option<String>,
+    #[serde(deserialize_with = "deserialize_metadata_date")]
+    pub date: Option<chrono::NaiveDate>,
+    pub description: Option<String>,
+    pub purl: Option<String>,
+    pub title: Option<String>,
+}
+
+impl Metadata {
+    pub fn has_anything_interesting(&self) -> bool {
+        self.artist.is_some()
+            || self.date.is_some()
+            || self.description.is_some()
+            || self.purl.is_some()
+    }
+
+    pub fn youtube_id(&self) -> Option<&str> {
+        let purl = self.purl.as_deref()?;
+        let (_, id) = purl.split_once("youtube.com/watch?v=")?;
+        if id.len() >= 11 && id.is_char_boundary(11) {
+            Some(&id[..11])
+        } else {
+            None
+        }
+    }
+}
+
+fn deserialize_metadata_date<'de, D>(deserializer: D) -> Result<Option<chrono::NaiveDate>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(s): Option<String> = Option::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(&s, "%Y%m%d") {
+        return Ok(Some(date));
+    }
+
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
+        return Ok(Some(date));
+    }
+
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(&s, "%Y") {
+        return Ok(Some(date));
+    }
+
+    Err(serde::de::Error::custom(format!("Failed to parse date from metadata: {s}")))
 }
