@@ -1,4 +1,5 @@
-use egui::{Align, Id, InnerResponse, Layout, Response, UiBuilder};
+use egui::{Align, Align2, Id, InnerResponse, Layout, Response, UiBuilder};
+use egui_flex::Flex;
 
 pub trait ResponseExt: Sized {
     fn autofocus(&self);
@@ -49,6 +50,30 @@ impl ResponseExt for Response {
             add_contents,
         )
     }
+}
+
+pub fn horizontal_left_right<A, B>(
+    ui: &mut egui::Ui,
+    left: impl FnOnce(&mut egui::Ui) -> A,
+    right: impl FnOnce(&mut egui::Ui) -> B,
+) -> InnerResponse<(InnerResponse<A>, InnerResponse<B>)> {
+    Flex::horizontal().w_full().show(ui, |flex| {
+        let a = flex.add_ui(
+            egui_flex::item()
+                .grow(1.)
+                .align_self_content(Align2::LEFT_CENTER),
+            left,
+        );
+
+        let b = flex.add_ui(
+            egui_flex::item()
+                .grow(1.)
+                .align_self_content(Align2::RIGHT_CENTER),
+            right,
+        );
+
+        (a, b)
+    })
 }
 
 #[derive(Clone, Copy, Default)]

@@ -1,10 +1,9 @@
 use core::{any::Any, time::Duration};
 
-use egui::{Align, Direction, Layout, RichText, UiBuilder};
 use gilrs::Button;
 
 use self::views::hidden::HiddenView;
-use crate::{App, BLUE, command::Actions, gamepad::button_prompt};
+use crate::{App, BLUE, command::Actions, gamepad::button_prompt, utils::horizontal_left_right};
 
 pub mod toast;
 pub mod views {
@@ -53,42 +52,30 @@ pub fn button_prompts(ctx: &egui::Context, app: &App, actions: &Actions) {
     egui::TopBottomPanel::bottom("button prompts")
         .show_separator_line(false)
         .show(ctx, |ui| {
-            ui.scope(|ui| {
-                ui.visuals_mut().override_text_color = Some(BLUE);
+            ui.visuals_mut().override_text_color = Some(BLUE);
 
-                let (left, right) = actions
-                    .iter()
-                    .filter(|(_button, cmd)| cmd.show_prompt())
-                    .partition::<Vec<_>, _>(|(button, _action)| {
-                        button_prompt_position(button) == PromptPosition::Left
-                    });
+            let (left, right) = actions
+                .iter()
+                .filter(|(_button, cmd)| cmd.show_prompt())
+                .partition::<Vec<_>, _>(|(button, _action)| {
+                    button_prompt_position(button) == PromptPosition::Left
+                });
 
-                let res = ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            horizontal_left_right(
+                ui,
+                |ui| {
                     for (button, cmd) in left {
                         ui.add(button_prompt(button, cmd.label(app)));
                         ui.add_space(8.);
                     }
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        for (button, cmd) in right {
-                            ui.add(button_prompt(button, cmd.label(app)));
-                            ui.add_space(8.);
-                        }
-                    });
-                });
-
-                ui.scope_builder(
-                    UiBuilder::new()
-                        .max_rect(res.response.rect)
-                        .layout(Layout::centered_and_justified(Direction::LeftToRight)),
-                    |ui| {
-                        let time = chrono::Local::now();
-                        let time = time.format("%H:%M").to_string();
-                        ui.label(RichText::new(time));
-                        ui.add_space(16.);
-                    },
-                );
-            });
+                },
+                |ui| {
+                    for (button, cmd) in right.into_iter().rev() {
+                        ui.add_space(8.);
+                        ui.add(button_prompt(button, cmd.label(app)));
+                    }
+                },
+            );
         });
 }
 

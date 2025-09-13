@@ -1,9 +1,10 @@
-use egui::{Align, Align2, Color32, FontId, Layout, ProgressBar, RichText, Widget as _};
+use egui::{Align2, Color32, FontId, ProgressBar, RichText, Widget as _};
 
 use crate::{
     BLUE,
     command::{Actions, Command},
     ui::View,
+    utils::horizontal_left_right,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -14,7 +15,7 @@ impl View for SeekingView {
         egui::TopBottomPanel::bottom("seeking ui")
             .show_separator_line(false)
             .show(ctx, |ui| {
-                ui.add_space(4.);
+                ui.add_space(8.);
 
                 let pos = app.mpv.get_property::<f32>("percent-pos") / 100.;
 
@@ -34,22 +35,25 @@ impl View for SeekingView {
                     );
                 }
 
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(
-                            app.mpv
-                                .time_pos()
-                                .map(|t| t.mmss())
-                                .unwrap_or_else(|| "--:--".to_string()),
+                horizontal_left_right(
+                    ui,
+                    |ui| {
+                        ui.label(
+                            RichText::new(
+                                app.mpv
+                                    .time_pos()
+                                    .map(|t| t.mmss())
+                                    .unwrap_or_else(|| "--:--".to_string()),
+                            )
+                            .size(10.),
                         )
-                        .size(10.),
-                    );
-                    if let Some(duration) = app.mpv.duration() {
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    },
+                    |ui| {
+                        if let Some(duration) = app.mpv.duration() {
                             ui.label(RichText::new(duration.mmss()).size(10.));
-                        });
-                    }
-                });
+                        }
+                    },
+                );
 
                 ProgressBar::new(pos).desired_height(4.).ui(ui);
             });
