@@ -85,7 +85,8 @@ impl View for SeekBarView {
             x: Command::TogglePause,
             left: Command::SeekBackwardStateless,
             right: Command::SeekForwardStateless,
-            start: Command::ShowMenu,
+            start: Command::ShowMediaMenu,
+            home: Command::ShowHomeMenu,
             ..Actions::default()
         }
     }

@@ -1,10 +1,12 @@
 use core::time::Duration;
 
-use egui::{Frame, ProgressBar, Widget as _};
+use egui::{Color32, FontFamily, Frame, ProgressBar, RichText, Widget as _};
+use gilrs::Button;
 
 use crate::{
     command::{Actions, Command},
     ui::{HiddenView, View},
+    utils::available_characters,
 };
 
 pub struct MiniSeekView;
@@ -20,6 +22,24 @@ impl View for MiniSeekView {
                     .desired_height(4.)
                     .ui(ui);
             });
+
+        if app.gamepad.is_down(Button::LeftTrigger2) {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    let chars = available_characters(ui, FontFamily::Proportional);
+                    for c in chars {
+                        ui.label(RichText::new(c.to_string()).size(50.));
+                        ctx.debug_painter().text(
+                            ui.cursor().left_top(),
+                            egui::Align2::RIGHT_TOP,
+                            format!("{:04x}", c as u32),
+                            egui::FontId::new(10., FontFamily::Proportional),
+                            Color32::WHITE,
+                        );
+                    }
+                });
+            });
+        }
     }
 
     fn button_actions(&self) -> Actions {

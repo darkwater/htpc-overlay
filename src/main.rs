@@ -1,6 +1,9 @@
 #![feature(slice_split_once)]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    mem::take,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use egui::{
     Color32, FontData, FontFamily, Id, Stroke,
@@ -12,7 +15,7 @@ use egui_wlr_layer::{
 };
 
 use self::{
-    command::Command,
+    command::{Command, Event},
     dlna::Dlna,
     gamepad::Gamepad,
     mpv::Mpv,
@@ -20,6 +23,7 @@ use self::{
     utils::Activated,
 };
 
+mod cec;
 mod command;
 mod dlna;
 mod gamepad;
@@ -62,7 +66,10 @@ pub struct App {
     view: Box<dyn ui::View>,
     mpv: Mpv,
     dlna: Dlna,
+    // cec: Cec,
     toasts: Vec<SpawnedToast>,
+    queued_commands: Vec<Command>,
+    queued_events: Vec<Event>,
 }
 
 impl App {
@@ -78,6 +85,10 @@ impl App {
 
     fn change_view(&mut self, new_view: impl View) {
         self.view = Box::new(new_view);
+    }
+
+    fn queue_command(&mut self, cmd: Command) {
+        self.queued_commands.push(cmd);
     }
 }
 
@@ -115,10 +126,8 @@ impl egui_wlr_layer::App for App {
             return;
         }
 
-        ctx.memory_mut(|m| m.data.insert_temp(Id::NULL, Activated(false)));
-
-        self.gamepad.update().execute(self);
-        self.dlna.update().execute(self);
+        self.gamepad.update(&mut self.queued_events);
+        self.dlna.update(&mut self.queued_events);
         self.mpv.update().expect("mpv connection broke");
 
         let view = self.take_view();
@@ -127,13 +136,13 @@ impl egui_wlr_layer::App for App {
 
         let just_pressed = self.gamepad.get_just_pressed();
         for button in just_pressed {
-            actions.get(button).execute(self, ctx);
+            self.queued_commands.push(actions.get(button));
         }
 
         if let Some(limit) = view.hide_on_inactive()
             && self.gamepad.inactive_for(limit)
         {
-            Command::HideUi.execute(self, ctx);
+            self.queue_command(Command::HideUi);
         }
 
         if view.show_prompts() {
@@ -153,6 +162,16 @@ impl egui_wlr_layer::App for App {
         ui::toast::draw(&mut self.toasts, ctx);
 
         self.restore_view(view);
+
+        ctx.memory_mut(|m| m.data.insert_temp(Id::NULL, Activated(false)));
+
+        for cmd in take(&mut self.queued_commands) {
+            cmd.execute(self, ctx);
+        }
+
+        for ev in take(&mut self.queued_events) {
+            ev.execute(self);
+        }
 
         ctx.request_repaint();
     }

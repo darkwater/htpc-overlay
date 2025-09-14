@@ -1,75 +1,41 @@
 use core::fmt::Debug;
 
 use egui::{Align, Color32, FocusDirection, Frame, Id, Layout, Margin, ScrollArea};
+use gilrs::PowerInfo;
 
 use crate::{
     command::{Actions, Command},
-    mpv::TrackType,
     ui::View,
     utils::ResponseExt as _,
 };
 
-mod chapters;
-mod info;
-mod playlist;
-mod tracks;
-mod volume;
+mod library;
 
-fn entries() -> [Box<dyn MediaMenu>; 7] {
-    [
-        Box::new(volume::VolumeMenu),
-        Box::new(playlist::PlaylistMenu),
-        Box::new(chapters::ChaptersMenu),
-        Box::new(tracks::TrackMenu(TrackType::Video)),
-        Box::new(tracks::TrackMenu(TrackType::Audio)),
-        Box::new(tracks::TrackMenu(TrackType::Sub)),
-        Box::new(info::InfoMenu),
-    ]
+fn entries() -> [Box<dyn HomeMenu>; 1] {
+    [Box::new(library::LibraryMenu)]
 }
 
 #[derive(Debug, Default)]
-pub struct MediaMenuView {
-    pub submenu: Option<Box<dyn MediaMenu>>,
+pub struct HomeMenuView {
+    pub submenu: Option<Box<dyn HomeMenu>>,
 }
 
-impl MediaMenuView {
+impl HomeMenuView {
     pub fn main() -> Self {
         Self { submenu: None }
     }
 
-    pub fn sub(menu: Box<dyn MediaMenu>) -> Self {
+    pub fn sub(menu: Box<dyn HomeMenu>) -> Self {
         Self { submenu: Some(menu) }
     }
 }
 
-impl View for MediaMenuView {
+impl View for HomeMenuView {
     fn draw(&self, ctx: &egui::Context, app: &mut crate::App) {
         if let Some(submenu) = &self.submenu {
-            egui::SidePanel::left("submenu")
-                .show_separator_line(false)
-                .resizable(false)
-                .frame(submenu.frame(ctx))
-                .exact_width(submenu.width())
-                .show(ctx, |ui| {
-                    ScrollArea::vertical()
-                        .scroll_bar_visibility(
-                            egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
-                        )
-                        .show(ui, |ui| {
-                            ui.with_layout(
-                                Layout::top_down(Align::Min).with_cross_justify(true),
-                                |ui| {
-                                    ui.spacing_mut().interact_size.y = 24.;
-                                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
-                                        Color32::TRANSPARENT;
-
-                                    submenu.draw(ui, app);
-                                },
-                            );
-                        });
-                });
+            submenu.panel(ctx, app);
         } else {
-            egui::SidePanel::left("menu")
+            egui::SidePanel::right("home menu")
                 .show_separator_line(false)
                 .resizable(false)
                 .frame({
@@ -98,9 +64,30 @@ impl View for MediaMenuView {
 
                             if resp.activated() {
                                 ui.memory_mut(|m| m.data.insert_temp(id_autofocus, entry.label()));
-                                app.change_view(MediaMenuView::sub(entry));
+                                app.change_view(HomeMenuView::sub(entry));
                             }
                         }
+
+                        ui.with_layout(
+                            Layout::top_down(Align::Min).with_cross_justify(true),
+                            |ui| {
+                                ui.add_space(8.);
+
+                                for &id in app.gamepad.gamepads() {
+                                    let gamepad = app.gamepad.get(id);
+
+                                    match app.gamepad.power_info(id) {
+                                        PowerInfo::Charging(level)
+                                        | PowerInfo::Discharging(level) => {
+                                            ui.label(gamepad.name()).ralign_overlay(ui, |ui| {
+                                                ui.label(format!("{}%", level));
+                                            });
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            },
+                        );
                     });
                 });
         }
@@ -120,7 +107,7 @@ impl View for MediaMenuView {
         Actions {
             a: Command::Activate,
             b: if self.submenu.is_some() {
-                Command::ShowMediaMenu
+                Command::ShowHomeMenu
             } else {
                 Command::HideUi
             },
@@ -129,13 +116,13 @@ impl View for MediaMenuView {
             down: Command::MoveFocus(FocusDirection::Down),
             // left: Command::MoveFocus(FocusDirection::Left),
             // right: Command::MoveFocus(FocusDirection::Right),
-            start: Command::HideUi,
+            home: Command::HideUi,
             ..left_right
         }
     }
 }
 
-pub trait MediaMenu: 'static {
+pub trait HomeMenu: 'static {
     fn label(&self) -> &'static str;
     fn enabled(&self, app: &crate::App) -> bool;
     fn width(&self) -> f32 {
@@ -147,6 +134,30 @@ pub trait MediaMenu: 'static {
             .fill(ctx.style().visuals.panel_fill)
     }
 
+    fn panel(&self, ctx: &egui::Context, app: &mut crate::App) {
+        egui::SidePanel::right("home submenu")
+            .show_separator_line(false)
+            .resizable(false)
+            .frame(self.frame(ctx))
+            .exact_width(self.width())
+            .show(ctx, |ui| {
+                self.inner(ui, app);
+            });
+    }
+
+    fn inner(&self, ui: &mut egui::Ui, app: &mut crate::App) {
+        ScrollArea::vertical()
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+            .show(ui, |ui| {
+                ui.with_layout(Layout::top_down(Align::Min).with_cross_justify(true), |ui| {
+                    ui.spacing_mut().interact_size.y = 24.;
+                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+
+                    self.draw(ui, app);
+                });
+            });
+    }
+
     fn draw(&self, ui: &mut egui::Ui, app: &mut crate::App);
 
     fn catch_left_right(&self) -> bool {
@@ -154,7 +165,7 @@ pub trait MediaMenu: 'static {
     }
 }
 
-impl Debug for dyn MediaMenu {
+impl Debug for dyn HomeMenu {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(self.label()).finish_non_exhaustive()
     }

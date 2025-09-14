@@ -7,6 +7,7 @@ edition = "2024"
 egui-wlr-layer = { git = "https://github.com/darkwater/egui-wlr-layer" }
 # egui-wlr-layer = { path = "../downloads/egui-wlr-layer/" }
 
+cec-rs     = "12.0.1"
 chrono     = "0.4.41"
 egui       = "0.31.1"
 egui_flex  = "0.3.0"

@@ -41,7 +41,7 @@ impl Dlna {
         Dlna { socket, devices: Vec::new() }
     }
 
-    pub fn update(&mut self) -> Event {
+    pub fn update(&mut self, events: &mut Vec<Event>) {
         let mut buf = [0; 2048];
 
         loop {
@@ -75,14 +75,14 @@ impl Dlna {
 
                     self.devices.push(device);
 
-                    return Event::Toast(Toast::DlnaDeviceDiscovered { name });
+                    events.push(Event::Toast(Toast::DlnaDeviceDiscovered { name }));
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                    break Event::None;
+                    break;
                 }
                 Err(e) => {
                     eprintln!("Error receiving from socket: {}", e);
-                    break Event::None;
+                    break;
                 }
             }
         }

@@ -8,6 +8,7 @@ use crate::{App, BLUE, command::Actions, gamepad::button_prompt, utils::horizont
 pub mod toast;
 pub mod views {
     pub mod hidden;
+    pub mod home_menu;
     pub mod media_menu;
     pub mod miniseek;
     pub mod seekbar;

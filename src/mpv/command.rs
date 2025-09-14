@@ -40,6 +40,10 @@ impl Command {
             command: json!(["seek", seconds, if exact { "exact" } else { "keyframes" }]),
         }
     }
+
+    pub fn loadfile(path: &str) -> Command {
+        Command { command: json!(["loadfile", path]) }
+    }
 }
 
 #[derive(Deserialize)]

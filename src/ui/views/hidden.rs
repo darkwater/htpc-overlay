@@ -20,7 +20,8 @@ impl View for HiddenView {
             up: Command::VolumeUp,
             down: Command::VolumeDown,
             select: Command::ShowMiniSeek,
-            start: Command::ShowMenu,
+            start: Command::ShowMediaMenu,
+            home: Command::ShowHomeMenu,
             ..Actions::default()
         }
     }

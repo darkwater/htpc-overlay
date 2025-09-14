@@ -79,7 +79,6 @@ pub fn horizontal_left_right<A, B>(
 #[derive(Clone, Copy, Default)]
 pub struct Activated(pub bool);
 
-#[expect(dead_code)]
 pub fn available_characters(ui: &egui::Ui, family: egui::FontFamily) -> Vec<char> {
     ui.fonts(|f| {
         f.lock()
@@ -95,20 +94,13 @@ pub fn available_characters(ui: &egui::Ui, family: egui::FontFamily) -> Vec<char
             .map(|(chr, _fonts)| *chr)
             .collect()
     })
+}
 
-    // egui::CentralPanel::default().show(ctx, |ui| {
-    //     ui.horizontal_wrapped(|ui| {
-    //         let chars = available_characters(ui, FontFamily::Proportional);
-    //         for c in chars {
-    //             ui.label(RichText::new(c.to_string()).size(50.));
-    //             ctx.debug_painter().text(
-    //                 ui.cursor().left_top(),
-    //                 egui::Align2::RIGHT_TOP,
-    //                 format!("{:04x}", c as u32),
-    //                 egui::FontId::new(10., FontFamily::Proportional),
-    //                 Color32::WHITE,
-    //             );
-    //         }
-    //     });
-    // });
+pub fn youtube_id_from_url(url: &str) -> Option<&str> {
+    let (_, id) = url.split_once("youtube.com/watch?v=")?;
+    if id.len() >= 11 && id.is_char_boundary(11) {
+        Some(&id[..11])
+    } else {
+        None
+    }
 }

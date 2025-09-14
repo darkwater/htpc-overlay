@@ -13,6 +13,7 @@ use self::{
     seek_speed::SeekSpeed,
     time::Time,
 };
+use crate::utils::youtube_id_from_url;
 
 mod command;
 pub mod seek_speed;
@@ -162,11 +163,19 @@ impl Mpv {
                     Self::store_deserialized_property(&name, data, &mut self.chapters);
                 }
                 "metadata" => {
+                    if data.is_null() {
+                        self.metadata = Metadata::default();
+                        self.sponsorblock_segments.clear();
+                        return;
+                    }
+
                     Self::store_deserialized_property(&name, data, &mut self.metadata);
 
                     if let Some(youtube_id) = self.metadata.youtube_id() {
                         let res = sponsorblock::fetch_skip_segments(youtube_id);
                         self.sponsorblock_segments = res.unwrap_or_default();
+                    } else {
+                        self.sponsorblock_segments.clear();
                     }
                 }
                 _ => {
@@ -471,6 +480,11 @@ impl Mpv {
     pub fn sponsorblock_segments(&self) -> &[sponsorblock::SkipSegment] {
         &self.sponsorblock_segments
     }
+
+    pub fn load_file(&mut self, path: &str) -> io::Result<()> {
+        self.command::<()>(Command::loadfile(path))?;
+        Ok(())
+    }
 }
 
 impl Default for Mpv {
@@ -579,13 +593,7 @@ impl Metadata {
     }
 
     pub fn youtube_id(&self) -> Option<&str> {
-        let purl = self.purl.as_deref()?;
-        let (_, id) = purl.split_once("youtube.com/watch?v=")?;
-        if id.len() >= 11 && id.is_char_boundary(11) {
-            Some(&id[..11])
-        } else {
-            None
-        }
+        youtube_id_from_url(self.purl.as_deref()?)
     }
 }
 

@@ -33,10 +33,12 @@ pub fn draw(toasts: &mut Vec<SpawnedToast>, ctx: &egui::Context) {
         let slide_in = slide_in * slide_in * slide_in;
         let slide_out = slide_out * slide_out * slide_out;
 
+        let right_margin = ctx.screen_rect().right() - ctx.available_rect().right();
+
         let height = Area::new(toast.id)
             .anchor(
                 Align2::RIGHT_TOP,
-                vec2(-margin + slide_in * 200., cursor - (1. - slide_out) * 100.),
+                vec2(-margin + slide_in * 200. - right_margin, cursor - (1. - slide_out) * 100.),
             )
             .constrain(false)
             .show(ctx, |ui| {
@@ -63,6 +65,7 @@ pub fn draw(toasts: &mut Vec<SpawnedToast>, ctx: &egui::Context) {
 #[derive(Debug)]
 pub enum Toast {
     GamepadConnected { name: String },
+    GamepadLowBattery { name: String, level: u8 },
     GamepadDisconnected { name: String },
     LastGamepadDisconnected,
     DlnaDeviceDiscovered { name: String },
@@ -74,6 +77,10 @@ impl Toast {
             Toast::GamepadConnected { name } => {
                 ui.label("Gamepad connected");
                 ui.label(RichText::new(name).size(10.));
+            }
+            Toast::GamepadLowBattery { name, level } => {
+                ui.label("Low battery");
+                ui.label(RichText::new(format!("{name} ({level}%)")).size(10.));
             }
             Toast::GamepadDisconnected { name } => {
                 ui.label("Gamepad disconnected");

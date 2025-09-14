@@ -9,8 +9,8 @@ use crate::{
     ui::{
         toast::{SpawnedToast, Toast},
         views::{
-            hidden::HiddenView, media_menu::MediaMenuView, miniseek::MiniSeekView,
-            seekbar::SeekBarView, seeking::SeekingView,
+            hidden::HiddenView, home_menu::HomeMenuView, media_menu::MediaMenuView,
+            miniseek::MiniSeekView, seekbar::SeekBarView, seeking::SeekingView,
         },
     },
     utils::Activated,
@@ -24,7 +24,8 @@ pub enum Command {
     ShowMiniSeek,
     ShowUi,
     HideUi,
-    ShowMenu,
+    ShowMediaMenu,
+    ShowHomeMenu,
 
     MoveFocus(FocusDirection),
     Activate,
@@ -45,13 +46,11 @@ pub enum Command {
     VolumeUp,
     VolumeDown,
 
-    // CharactersDebug,
     Quit,
 }
 
 #[derive(Debug)]
 pub enum Event {
-    None,
     Toast(Toast),
     LastGamepadDisconnected,
 }
@@ -83,7 +82,8 @@ impl Command {
             Command::ShowMiniSeek => "Show position",
             Command::ShowUi => "Show UI",
             Command::HideUi => "Hide UI",
-            Command::ShowMenu => "Menu",
+            Command::ShowMediaMenu => "Media Menu",
+            Command::ShowHomeMenu => "Home Menu",
 
             Command::MoveFocus(_) => "Move Focus",
             Command::Activate => "Activate",
@@ -106,7 +106,6 @@ impl Command {
             Command::VolumeUp => "Volume Up",
             Command::VolumeDown => "Volume Down",
 
-            // Command::CharactersDebug => "Characters",
             Command::Quit => "Quit",
         }
     }
@@ -138,8 +137,11 @@ impl Command {
             Command::HideUi => {
                 app.change_view(HiddenView);
             }
-            Command::ShowMenu => {
+            Command::ShowMediaMenu => {
                 app.change_view(MediaMenuView::main());
+            }
+            Command::ShowHomeMenu => {
+                app.change_view(HomeMenuView::main());
             }
 
             Command::MoveFocus(dir) => {
@@ -194,9 +196,6 @@ impl Command {
                 }
             }
 
-            // Command::CharactersDebug => {
-            //     self.change_view(View::Characters);
-            // }
             Command::Quit => {
                 EXIT.store(true, Ordering::Relaxed);
             }
@@ -207,7 +206,6 @@ impl Command {
 impl Event {
     pub fn execute(self, app: &mut App) {
         match self {
-            Event::None => {}
             Event::Toast(toast) => {
                 app.toasts.push(SpawnedToast::new(toast));
             }
